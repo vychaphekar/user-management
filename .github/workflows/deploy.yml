@@ -1,0 +1,328 @@
+name: Deploy
+on:
+  push:
+    branches: [ main ]
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  build_image:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build docker image locally
+        id: meta
+        run: |
+          TAG="${GITHUB_SHA}"
+          docker build -t user-service:${TAG} apps/user-service
+          docker save user-service:${TAG} -o image.tar
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: user-service-image
+          path: image.tar
+          retention-days: 1
+  
+  deploy_innovation:
+    needs: build_image
+    runs-on: ubuntu-latest
+    environment: innovation
+    env:
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: user-service-image
+
+      - name: Configure AWS creds (innovation)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.DEPLOY_ROLE_ARN }}
+
+      - name: Login to ECR (innovation)
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push image to innovation ECR
+        id: img
+        run: |
+          TAG="${{ needs.build_image.outputs.tag }}"
+          REPO="${{ secrets.ECR_REPO }}"
+          IMAGE="${REPO}:${TAG}"
+          docker load -i image.tar
+          docker tag user-service:${TAG} "${IMAGE}"
+          docker push "${IMAGE}"
+          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+
+      - name: Install Terraform + Conftest
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip
+          curl -L -o terraform.zip https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
+          unzip terraform.zip && sudo mv terraform /usr/local/bin/terraform
+          curl -L -o conftest.tar.gz https://github.com/open-policy-agent/conftest/releases/download/v0.55.0/conftest_0.55.0_Linux_x86_64.tar.gz
+          tar -xzf conftest.tar.gz && sudo mv conftest /usr/local/bin/conftest
+
+      - name: Build pre-token lambda dist
+        run: |
+          cd apps/cognito-triggers/pre-token-generation
+          npm ci
+          npm run build
+
+      - name: Terraform plan + OPA (innovation)
+        run: |
+          export TF_VAR_name="innovation"
+          export TF_VAR_aws_region="${AWS_REGION}"
+          export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
+
+          export TF_VAR_vpc_cidr="10.10.0.0/16"
+          export TF_VAR_ui_callback_urls='["https://app.innovation.evanyaconsulting.com/callback"]'
+          export TF_VAR_ui_logout_urls='["https://app.innovation.evanyaconsulting.com/logout"]'
+
+          bash infra/terraform/scripts/tfplan.sh innovation
+          conftest test infra/terraform/envs/innovation/plan.json -p infra/terraform/policies/opa/rules
+
+      - name: Terraform apply (innovation)
+        run: |
+          export TF_VAR_name="innovation"
+          export TF_VAR_aws_region="${AWS_REGION}"
+          export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
+
+          export TF_VAR_vpc_cidr="10.10.0.0/16"
+          export TF_VAR_ui_callback_urls='["https://app.innovation.evanyaconsulting.com/callback"]'
+          export TF_VAR_ui_logout_urls='["https://app.innovation.evanyaconsulting.com/logout"]'
+
+          bash infra/terraform/scripts/tfapply.sh innovation
+
+  deploy_dev:
+    needs: [build_image, deploy_innovation]
+    runs-on: ubuntu-latest
+    environment: dev
+    env:
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: user-service-image
+
+      - name: Configure AWS creds (dev)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.DEPLOY_ROLE_ARN }}
+
+      - name: Login to ECR (dev)
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push image to dev ECR
+        id: img
+        run: |
+          TAG="${{ needs.build_image.outputs.tag }}"
+          REPO="${{ secrets.ECR_REPO }}"
+          IMAGE="${REPO}:${TAG}"
+          docker load -i image.tar
+          docker tag user-service:${TAG} "${IMAGE}"
+          docker push "${IMAGE}"
+          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+
+      - name: Install Terraform + Conftest
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip
+          curl -L -o terraform.zip https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
+          unzip terraform.zip && sudo mv terraform /usr/local/bin/terraform
+          curl -L -o conftest.tar.gz https://github.com/open-policy-agent/conftest/releases/download/v0.55.0/conftest_0.55.0_Linux_x86_64.tar.gz
+          tar -xzf conftest.tar.gz && sudo mv conftest /usr/local/bin/conftest
+
+      - name: Build pre-token lambda dist
+        run: |
+          cd apps/cognito-triggers/pre-token-generation
+          npm ci
+          npm run build
+
+      - name: Terraform plan + OPA (dev)
+        run: |
+          export TF_VAR_name="dev"
+          export TF_VAR_aws_region="${AWS_REGION}"
+          export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
+
+          export TF_VAR_vpc_cidr="10.20.0.0/16"
+          export TF_VAR_ui_callback_urls='["https://app.dev.evanyaconsulting.com/callback"]'
+          export TF_VAR_ui_logout_urls='["https://app.dev.evanyaconsulting.com/logout"]'
+
+          bash infra/terraform/scripts/tfplan.sh dev
+          conftest test infra/terraform/envs/dev/plan.json -p infra/terraform/policies/opa/rules
+
+      - name: Terraform apply (dev)
+        run: |
+          export TF_VAR_name="dev"
+          export TF_VAR_aws_region="${AWS_REGION}"
+          export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
+
+          export TF_VAR_vpc_cidr="10.20.0.0/16"
+          export TF_VAR_ui_callback_urls='["https://app.dev.evanyaconsulting.com/callback"]'
+          export TF_VAR_ui_logout_urls='["https://app.dev.evanyaconsulting.com/logout"]'
+
+          bash infra/terraform/scripts/tfapply.sh dev
+
+  deploy_qa:
+    needs: [build_image, deploy_dev]
+    runs-on: ubuntu-latest
+    environment: qa
+    env:
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: user-service-image
+
+      - name: Configure AWS creds (qa)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.DEPLOY_ROLE_ARN }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push image to qa ECR
+        id: img
+        run: |
+          TAG="${{ needs.build_image.outputs.tag }}"
+          REPO="${{ secrets.ECR_REPO }}"
+          IMAGE="${REPO}:${TAG}"
+          docker load -i image.tar
+          docker tag user-service:${TAG} "${IMAGE}"
+          docker push "${IMAGE}"
+          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+
+      - name: Install Terraform + Conftest
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip
+          curl -L -o terraform.zip https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
+          unzip terraform.zip && sudo mv terraform /usr/local/bin/terraform
+          curl -L -o conftest.tar.gz https://github.com/open-policy-agent/conftest/releases/download/v0.55.0/conftest_0.55.0_Linux_x86_64.tar.gz
+          tar -xzf conftest.tar.gz && sudo mv conftest /usr/local/bin/conftest
+
+      - name: Build pre-token lambda dist
+        run: |
+          cd apps/cognito-triggers/pre-token-generation
+          npm ci
+          npm run build
+
+      - name: Terraform plan + OPA (qa)
+        run: |
+          export TF_VAR_name="qa"
+          export TF_VAR_aws_region="${AWS_REGION}"
+          export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
+
+          # NEW REQUIRED VARS (no localhost)
+          export TF_VAR_vpc_cidr="10.30.0.0/16"
+          export TF_VAR_ui_callback_urls='["https://app.qa.evanyaconsulting.com/callback"]'
+          export TF_VAR_ui_logout_urls='["https://app.qa.evanyaconsulting.com/logout"]'
+
+          bash infra/terraform/scripts/tfplan.sh qa
+          conftest test infra/terraform/envs/qa/plan.json -p infra/terraform/policies/opa/rules
+
+      - name: Terraform apply (qa)
+        run: |
+          export TF_VAR_name="qa"
+          export TF_VAR_aws_region="${AWS_REGION}"
+          export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
+
+          # NEW REQUIRED VARS (no localhost)
+          export TF_VAR_vpc_cidr="10.30.0.0/16"
+          export TF_VAR_ui_callback_urls='["https://app.qa.evanyaconsulting.com/callback"]'
+          export TF_VAR_ui_logout_urls='["https://app.qa.evanyaconsulting.com/logout"]'
+
+          bash infra/terraform/scripts/tfapply.sh qa
+  
+  deploy_prod:
+    needs: [build_image, deploy_qa]
+    runs-on: ubuntu-latest
+    environment: prod
+    env:
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: user-service-image
+
+      - name: Configure AWS creds (prod)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.DEPLOY_ROLE_ARN }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push image to prod ECR
+        id: img
+        run: |
+          TAG="${{ needs.build_image.outputs.tag }}"
+          REPO="${{ secrets.ECR_REPO }}"
+          IMAGE="${REPO}:${TAG}"
+          docker load -i image.tar
+          docker tag user-service:${TAG} "${IMAGE}"
+          docker push "${IMAGE}"
+          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+
+      - name: Install Terraform + Conftest
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip
+          curl -L -o terraform.zip https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
+          unzip terraform.zip && sudo mv terraform /usr/local/bin/terraform
+          curl -L -o conftest.tar.gz https://github.com/open-policy-agent/conftest/releases/download/v0.55.0/conftest_0.55.0_Linux_x86_64.tar.gz
+          tar -xzf conftest.tar.gz && sudo mv conftest /usr/local/bin/conftest
+
+      - name: Build pre-token lambda dist
+        run: |
+          cd apps/cognito-triggers/pre-token-generation
+          npm ci
+          npm run build
+
+      - name: Terraform plan + OPA (prod)
+        run: |
+          export TF_VAR_name="prod"
+          export TF_VAR_aws_region="${AWS_REGION}"
+          export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
+
+          # NEW REQUIRED VARS (no localhost)
+          export TF_VAR_vpc_cidr="10.40.0.0/16"
+          export TF_VAR_ui_callback_urls='["https://app.evanyaconsulting.com/callback"]'
+          export TF_VAR_ui_logout_urls='["https://app.evanyaconsulting.com/logout"]'
+
+          bash infra/terraform/scripts/tfplan.sh prod
+          conftest test infra/terraform/envs/prod/plan.json -p infra/terraform/policies/opa/rules
+
+      - name: Terraform apply (prod)
+        run: |
+          export TF_VAR_name="prod"
+          export TF_VAR_aws_region="${AWS_REGION}"
+          export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
+
+          # NEW REQUIRED VARS (no localhost)
+          export TF_VAR_vpc_cidr="10.40.0.0/16"
+          export TF_VAR_ui_callback_urls='["https://app.evanyaconsulting.com/callback"]'
+          export TF_VAR_ui_logout_urls='["https://app.evanyaconsulting.com/logout"]'
+
+          bash infra/terraform/scripts/tfapply.sh prod

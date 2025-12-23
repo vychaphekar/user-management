@@ -1,0 +1,6 @@
+name            = "prod"
+aws_region      = "us-east-1"
+ecr_image       = "333333333333.dkr.ecr.us-east-1.amazonaws.com/user-service:REPLACE"
+
+subzone_name     = "evanyaconsulting.com"
+api_parent_domain = "api.evanyaconsulting.com"

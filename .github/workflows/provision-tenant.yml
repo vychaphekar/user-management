@@ -1,0 +1,107 @@
+name: Provision Tenant Subdomain
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: "Target environment (innovation|dev|qa|prod)"
+        required: true
+        type: choice
+        options:
+          - innovation
+          - dev
+          - qa
+          - prod
+
+      tenant_slug:
+        description: "Tenant subdomain slug (e.g., acme)"
+        required: true
+      tenant_id:
+        description: "Tenant UUID"
+        required: true
+
+      isolation_mode:
+        description: "LOGICAL | DEDICATED_POOL | DEDICATED_DB | DEDICATED_ACCOUNT"
+        required: false
+        default: "LOGICAL"
+
+      apigw_api_id:
+        description: "HTTP API ID to map (from env stack output)"
+        required: true
+
+      certificate_arn:
+        description: "ACM cert ARN for the env API parent domain (api.<env>... or api.evanyaconsulting.com)"
+        required: true
+
+      route53_zone_id:
+        description: "Route53 Hosted Zone ID for the delegated zone in the target account"
+        required: true
+
+      api_parent_domain:
+        description: "e.g. api.dev.evanyaconsulting.com / api.evanyaconsulting.com"
+        required: true
+
+      tenant_table_name:
+        description: "DynamoDB tenant registry table name"
+        required: true
+
+      profile_table_name:
+        description: "DynamoDB profile table name"
+        required: true
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target_env }}
+
+    env:
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS creds (target env account via OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.DEPLOY_ROLE_ARN }}
+
+      - name: Install Terraform
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip
+          curl -L -o terraform.zip https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
+          unzip terraform.zip && sudo mv terraform /usr/local/bin/terraform
+          terraform version
+
+      - name: Terraform init/apply (tenants stack)
+        run: |
+          set -euo pipefail
+
+          : "${TF_STATE_BUCKET:?Missing TF_STATE_BUCKET secret for this env}"
+          : "${TF_LOCK_TABLE:?Missing TF_LOCK_TABLE secret for this env}"
+
+          cd infra/terraform/tenants
+
+          terraform init -input=false \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=tenants/${{ inputs.target_env }}/${{ inputs.tenant_slug }}.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="dynamodb_table=${TF_LOCK_TABLE}" \
+            -backend-config="encrypt=true"
+
+          terraform apply -input=false -auto-approve \
+            -var="aws_region=${AWS_REGION}" \
+            -var="tenant_slug=${{ inputs.tenant_slug }}" \
+            -var="tenant_id=${{ inputs.tenant_id }}" \
+            -var="isolation_mode=${{ inputs.isolation_mode }}" \
+            -var="apigw_api_id=${{ inputs.apigw_api_id }}" \
+            -var="certificate_arn=${{ inputs.certificate_arn }}" \
+            -var="route53_zone_id=${{ inputs.route53_zone_id }}" \
+            -var="api_parent_domain=${{ inputs.api_parent_domain }}" \
+            -var="tenant_table_name=${{ inputs.tenant_table_name }}" \
+            -var="profile_table_name=${{ inputs.profile_table_name }}"

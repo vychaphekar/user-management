@@ -1,0 +1,135 @@
+name: Auto Delegate Subzone (Shared DNS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: "Environment that owns the delegated zone (innovation|dev|qa|prod)"
+        required: true
+        type: choice
+        options:
+          - innovation
+          - dev
+          - qa
+          - prod
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  read_zone_outputs:
+    name: Read delegated zone outputs from workload env
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target_env }}
+
+    env:
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+
+    outputs:
+      subzone_name: ${{ steps.out.outputs.subzone_name }}
+      name_servers: ${{ steps.out.outputs.name_servers }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS creds (workload account via OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.DEPLOY_ROLE_ARN }}
+
+      - name: Install Terraform + jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip jq
+          curl -L -o terraform.zip https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
+          unzip terraform.zip && sudo mv terraform /usr/local/bin/terraform
+          terraform version
+
+      - name: Read Terraform outputs (delegated zone NS + name)
+        id: out
+        run: |
+          set -euo pipefail
+
+          : "${TF_STATE_BUCKET:?Missing TF_STATE_BUCKET secret for this env}"
+          : "${TF_LOCK_TABLE:?Missing TF_LOCK_TABLE secret for this env}"
+
+          cd infra/terraform/envs/${{ inputs.target_env }}
+
+          terraform init -input=false \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=${{ inputs.target_env }}/terraform.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="dynamodb_table=${TF_LOCK_TABLE}" \
+            -backend-config="encrypt=true"
+
+          # Expect these outputs to exist (we updated outputs.tf earlier)
+          SUBZONE=$(terraform output -raw delegated_zone_name)
+          NS_JSON=$(terraform output -json delegated_zone_name_servers)
+
+          # Convert NS list JSON -> comma-separated for job output
+          NS_CSV=$(echo "${NS_JSON}" | jq -r '.[]' | paste -sd "," -)
+
+          echo "subzone_name=${SUBZONE}" >> $GITHUB_OUTPUT
+          echo "name_servers=${NS_CSV}" >> $GITHUB_OUTPUT
+
+  delegate_in_dns:
+    name: Create NS delegation record in shared DNS account
+    runs-on: ubuntu-latest
+    environment: dns
+    needs: read_zone_outputs
+
+    env:
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+      SUBZONE_NAME: ${{ needs.read_zone_outputs.outputs.subzone_name }}
+      NAME_SERVERS: ${{ needs.read_zone_outputs.outputs.name_servers }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS creds (DNS account via OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.DEPLOY_ROLE_ARN }}
+
+      - name: Install Terraform + jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip jq
+          curl -L -o terraform.zip https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
+          unzip terraform.zip && sudo mv terraform /usr/local/bin/terraform
+          terraform version
+
+      - name: Terraform apply (dns delegation)
+        run: |
+          set -euo pipefail
+
+          : "${TF_STATE_BUCKET:?Missing DNS TF_STATE_BUCKET secret}"
+          : "${TF_LOCK_TABLE:?Missing DNS TF_LOCK_TABLE secret}"
+          : "${SUBZONE_NAME:?Missing subzone name output}"
+          : "${NAME_SERVERS:?Missing name servers output}"
+
+          cd infra/terraform/dns_delegations
+
+          terraform init -input=false \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=dns-delegations/${SUBZONE_NAME}.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="dynamodb_table=${TF_LOCK_TABLE}" \
+            -backend-config="encrypt=true"
+
+          # Convert comma-separated NS -> terraform list(json)
+          NS_JSON=$(python - <<'PY' import json, os
+            ns = [x.strip() for x in os.environ["NAME_SERVERS"].split(",") if x.strip()]
+            print(json.dumps(ns))
+            PY
+                    )
+
+                    terraform apply -auto-approve -input=false \
+                        -var="aws_region=${AWS_REGION}" \
+                        -var="root_zone_name=evanyaconsulting.com" \
+                        -var="subzone_name=${SUBZONE_NAME}" \
+                        -var="subzone_name_servers=${NS_JSON}"

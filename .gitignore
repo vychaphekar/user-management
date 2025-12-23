@@ -1,0 +1,29 @@
+# Node
+node_modules/
+dist/
+coverage/
+npm-debug.log*
+yarn-error.log*
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# AWS / Lambda builds
+*.zip
+
+# Env files
+.env
+.env.*
+
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Artifacts
+image.tar

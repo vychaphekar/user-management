@@ -1,0 +1,63 @@
+name: Delegate Subzone in Shared DNS Account
+on:
+  workflow_dispatch:
+    inputs:
+      subzone_name:
+        description: "e.g. dev.evanyaconsulting.com"
+        required: true
+      name_servers:
+        description: "Comma-separated NS list from env account hosted zone output"
+        required: true
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  delegate:
+    runs-on: ubuntu-latest
+    environment: dns
+    env:
+      TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+      TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS creds (DNS account)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ secrets.DEPLOY_ROLE_ARN }}
+
+      - name: Install Terraform
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip
+          curl -L -o terraform.zip https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
+          unzip terraform.zip && sudo mv terraform /usr/local/bin/terraform
+
+      - name: Terraform init/apply (dns-delegations)
+        run: |
+          cd infra/terraform/dns-delegations
+
+          terraform init -input=false \
+            -backend-config="bucket=${TF_STATE_BUCKET}" \
+            -backend-config="key=dns-delegations/${{ inputs.subzone_name }}.tfstate" \
+            -backend-config="region=${AWS_REGION}" \
+            -backend-config="dynamodb_table=${TF_LOCK_TABLE}" \
+            -backend-config="encrypt=true"
+
+          # Convert comma-separated string into terraform list
+          NS_JSON=$(python - <<'PY'import json, os
+            ns = os.environ["NS"].split(",")
+            ns = [x.strip() for x in ns if x.strip()]
+            print(json.dumps(ns))
+            PY
+                    )
+
+                    terraform apply -auto-approve -input=false \
+                        -var="aws_region=${AWS_REGION}" \
+                        -var="root_zone_name=evanyaconsulting.com" \
+                        -var="subzone_name=${{ inputs.subzone_name }}" \
+                        -var="subzone_name_servers=${NS_JSON}"
+                    env:
+                    NS: ${{ inputs.name_servers }}
