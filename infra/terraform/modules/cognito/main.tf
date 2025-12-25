@@ -82,11 +82,18 @@ resource "aws_cognito_user_pool" "this" {
     }
   }
 
-  lambda_config {
-    pre_token_generation = aws_lambda_function.pre_token_generation.arn
-    define_auth_challenge          = aws_lambda_function.define_auth_challenge.arn
-    create_auth_challenge          = aws_lambda_function.create_auth_challenge.arn
-    verify_auth_challenge_response = aws_lambda_function.verify_auth_challenge.arn
+  dynamic "lambda_config" {
+    for_each = (
+      var.define_auth_challenge_lambda_arn != null ||
+      var.create_auth_challenge_lambda_arn != null ||
+      var.verify_auth_challenge_lambda_arn != null
+    ) ? [1] : []
+
+    content {
+      define_auth_challenge          = var.define_auth_challenge_lambda_arn
+      create_auth_challenge          = var.create_auth_challenge_lambda_arn
+      verify_auth_challenge_response = var.verify_auth_challenge_lambda_arn
+    }
   }
 }
 
@@ -96,6 +103,30 @@ resource "aws_lambda_permission" "allow_cognito" {
   function_name = aws_lambda_function.pre_token_generation.function_name
   principal     = "cognito-idp.amazonaws.com"
   source_arn    = aws_cognito_user_pool.this.arn
+}
+
+resource "aws_lambda_permission" "allow_cognito_define" {
+  statement_id  = "AllowCognitoInvokeDefineAuthChallenge"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.define_auth_challenge.function_name
+  principal     = "cognito-idp.amazonaws.com"
+  source_arn    = module.cognito.user_pool_arn
+}
+
+resource "aws_lambda_permission" "allow_cognito_create" {
+  statement_id  = "AllowCognitoInvokeCreateAuthChallenge"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.create_auth_challenge.function_name
+  principal     = "cognito-idp.amazonaws.com"
+  source_arn    = module.cognito.user_pool_arn
+}
+
+resource "aws_lambda_permission" "allow_cognito_verify" {
+  statement_id  = "AllowCognitoInvokeVerifyAuthChallenge"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.verify_auth_challenge.function_name
+  principal     = "cognito-idp.amazonaws.com"
+  source_arn    = module.cognito.user_pool_arn
 }
 
 resource "aws_cognito_user_pool_client" "this" {

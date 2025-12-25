@@ -35,8 +35,13 @@ module "cognito" {
   name       = var.name
   aws_region = var.aws_region
 
-  domain_prefix                  = "${var.name}-shared"
-  mfa_configuration              = "OFF"
+  domain_prefix     = "${var.name}-shared"
+  mfa_configuration = "OFF"
+
+  define_auth_challenge_lambda_arn = aws_lambda_function.define_auth_challenge.arn
+  create_auth_challenge_lambda_arn = aws_lambda_function.create_auth_challenge.arn
+  verify_auth_challenge_lambda_arn = aws_lambda_function.verify_auth_challenge.arn
+
   create_custom_tenant_attribute = true
   user_profiles_table_name       = module.dynamodb.profile_table_name
 
