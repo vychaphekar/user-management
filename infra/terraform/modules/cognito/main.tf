@@ -105,30 +105,6 @@ resource "aws_lambda_permission" "allow_cognito" {
   source_arn    = aws_cognito_user_pool.this.arn
 }
 
-resource "aws_lambda_permission" "allow_cognito_define" {
-  statement_id  = "AllowCognitoInvokeDefineAuthChallenge"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.define_auth_challenge.function_name
-  principal     = "cognito-idp.amazonaws.com"
-  source_arn    = module.cognito.user_pool_arn
-}
-
-resource "aws_lambda_permission" "allow_cognito_create" {
-  statement_id  = "AllowCognitoInvokeCreateAuthChallenge"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.create_auth_challenge.function_name
-  principal     = "cognito-idp.amazonaws.com"
-  source_arn    = module.cognito.user_pool_arn
-}
-
-resource "aws_lambda_permission" "allow_cognito_verify" {
-  statement_id  = "AllowCognitoInvokeVerifyAuthChallenge"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.verify_auth_challenge.function_name
-  principal     = "cognito-idp.amazonaws.com"
-  source_arn    = module.cognito.user_pool_arn
-}
-
 resource "aws_cognito_user_pool_client" "this" {
   name            = "${var.name}-app-client"
   user_pool_id    = aws_cognito_user_pool.this.id
