@@ -3,7 +3,7 @@ import { loadEnv } from "../src/config/env";
 
 describe("smoke", () => {
   it("rejects without tenant host", async () => {
-    process.env.AWS_REGION = "us-east-1";
+    process.env.APP_AWS_REGION  = "us-east-1";
     process.env.TENANT_TABLE_NAME = "tenant_registry";
     process.env.PROFILE_TABLE_NAME = "user_profiles";
     process.env.DEFAULT_USER_POOL_ID = "pool";

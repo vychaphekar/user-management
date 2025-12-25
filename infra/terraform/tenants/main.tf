@@ -33,7 +33,7 @@ module "tenant_registry" {
   status             = "ACTIVE"
   profile_table_name = var.profile_table_name
 
-  cognito_user_pool_id   = var.cognito_user_pool_id
-  cognito_issuer         = var.cognito_issuer
-  cognito_app_client_id  = var.cognito_app_client_id
+  cognito_user_pool_id  = var.cognito_user_pool_id
+  cognito_issuer        = var.cognito_issuer
+  cognito_app_client_id = var.cognito_app_client_id
 }

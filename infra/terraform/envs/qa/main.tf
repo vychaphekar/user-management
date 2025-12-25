@@ -19,7 +19,7 @@ module "dynamodb" {
 
 # Create delegated zone in THIS nonprod account
 module "delegated_zone" {
-  source      = "../../modules/delegated_zone"
+  source       = "../../modules/delegated_zone"
   subzone_name = var.subzone_name
 }
 
@@ -31,9 +31,9 @@ module "route53_acm" {
 }
 
 module "cognito" {
-  source      = "../../modules/cognito"
-  name        = var.name
-  aws_region  = var.aws_region
+  source     = "../../modules/cognito"
+  name       = var.name
+  aws_region = var.aws_region
 
   domain_prefix                  = "${var.name}-shared"
   mfa_configuration              = "ON"
@@ -102,7 +102,7 @@ module "example_tenant_registry" {
   status             = "ACTIVE"
   profile_table_name = module.dynamodb.profile_table_name
 
-  cognito_user_pool_id   = module.cognito.user_pool_id
-  cognito_app_client_id  = module.cognito.app_client_id
-  cognito_issuer         = module.cognito.issuer
+  cognito_user_pool_id  = module.cognito.user_pool_id
+  cognito_app_client_id = module.cognito.app_client_id
+  cognito_issuer        = module.cognito.issuer
 }

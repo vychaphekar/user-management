@@ -41,18 +41,18 @@ resource "aws_lb_listener" "listener" {
 resource "aws_iam_role" "task_exec" {
   name = "${var.name}-task-exec"
   assume_role_policy = jsonencode({
-    Version = "2012-10-17",
+    Version   = "2012-10-17",
     Statement = [{ Effect = "Allow", Principal = { Service = "ecs-tasks.amazonaws.com" }, Action = "sts:AssumeRole" }]
   })
 }
 
 resource "aws_iam_role_policy_attachment" "exec_attach" {
   role       = aws_iam_role.task_exec.name
-  policy_arn  = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
 resource "aws_iam_role" "task_role" {
-  name = "${var.name}-task-role"
+  name               = "${var.name}-task-role"
   assume_role_policy = aws_iam_role.task_exec.assume_role_policy
 }
 
@@ -63,7 +63,7 @@ resource "aws_iam_role_policy" "task_policy" {
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [
-      { Effect = "Allow", Action = ["dynamodb:GetItem","dynamodb:PutItem","dynamodb:UpdateItem","dynamodb:Query"], Resource = "*" },
+      { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query"], Resource = "*" },
       { Effect = "Allow", Action = ["cognito-idp:*"], Resource = "*" }
     ]
   })
@@ -79,8 +79,8 @@ resource "aws_ecs_task_definition" "task" {
   task_role_arn            = aws_iam_role.task_role.arn
 
   container_definitions = jsonencode([{
-    name  = "user-service",
-    image = var.ecr_image,
+    name         = "user-service",
+    image        = var.ecr_image,
     portMappings = [{ containerPort = 3000, hostPort = 3000, protocol = "tcp" }],
     logConfiguration = {
       logDriver = "awslogs",

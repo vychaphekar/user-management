@@ -9,16 +9,16 @@ resource "aws_iam_role" "pre_token_role" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
     Statement = [{
-      Effect = "Allow",
+      Effect    = "Allow",
       Principal = { Service = "lambda.amazonaws.com" },
-      Action = "sts:AssumeRole"
+      Action    = "sts:AssumeRole"
     }]
   })
 }
 
 resource "aws_iam_role_policy_attachment" "pre_token_basic" {
   role       = aws_iam_role.pre_token_role.name
-  policy_arn  = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
 resource "aws_iam_role_policy" "pre_token_ddb" {
@@ -28,8 +28,8 @@ resource "aws_iam_role_policy" "pre_token_ddb" {
     Version = "2012-10-17",
     Statement = [
       {
-        Effect = "Allow",
-        Action = ["dynamodb:GetItem"],
+        Effect   = "Allow",
+        Action   = ["dynamodb:GetItem"],
         Resource = "*"
       }
     ]
@@ -47,7 +47,7 @@ resource "aws_lambda_function" "pre_token_generation" {
 
   environment {
     variables = {
-      AWS_REGION               = var.aws_region
+      APP_AWS_REGION           = var.aws_region
       USER_PROFILES_TABLE_NAME = var.user_profiles_table_name
     }
   }
@@ -56,8 +56,8 @@ resource "aws_lambda_function" "pre_token_generation" {
 resource "aws_cognito_user_pool" "this" {
   name = "${var.name}-shared-pool"
 
-  mfa_configuration = var.mfa_configuration
-  username_attributes = ["email"]
+  mfa_configuration        = var.mfa_configuration
+  username_attributes      = ["email"]
   auto_verified_attributes = ["email"]
 
   password_policy {
@@ -96,8 +96,8 @@ resource "aws_lambda_permission" "allow_cognito" {
 }
 
 resource "aws_cognito_user_pool_client" "this" {
-  name         = "${var.name}-app-client"
-  user_pool_id = aws_cognito_user_pool.this.id
+  name            = "${var.name}-app-client"
+  user_pool_id    = aws_cognito_user_pool.this.id
   generate_secret = false
 
   explicit_auth_flows = [
@@ -107,11 +107,11 @@ resource "aws_cognito_user_pool_client" "this" {
   ]
 
   allowed_oauth_flows_user_pool_client = true
-  allowed_oauth_flows = ["code"]
-  allowed_oauth_scopes = ["openid", "email", "profile"]
-  callback_urls = var.ui_callback_urls
-  logout_urls   = var.ui_logout_urls
-  supported_identity_providers = ["COGNITO"]
+  allowed_oauth_flows                  = ["code"]
+  allowed_oauth_scopes                 = ["openid", "email", "profile"]
+  callback_urls                        = var.ui_callback_urls
+  logout_urls                          = var.ui_logout_urls
+  supported_identity_providers         = ["COGNITO"]
 }
 
 resource "aws_cognito_user_pool_domain" "this" {

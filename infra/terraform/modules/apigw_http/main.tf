@@ -10,11 +10,11 @@ resource "aws_apigatewayv2_vpc_link" "this" {
 }
 
 resource "aws_apigatewayv2_integration" "nlb" {
-  api_id                 = aws_apigatewayv2_api.this.id
-  integration_type       = "HTTP_PROXY"
-  integration_method     = "ANY"
-  connection_type        = "VPC_LINK"
-  connection_id          = aws_apigatewayv2_vpc_link.this.id
+  api_id             = aws_apigatewayv2_api.this.id
+  integration_type   = "HTTP_PROXY"
+  integration_method = "ANY"
+  connection_type    = "VPC_LINK"
+  connection_id      = aws_apigatewayv2_vpc_link.this.id
 
   # For HTTP API + VPC link to NLB listener ARN
   integration_uri        = var.nlb_listener_arn

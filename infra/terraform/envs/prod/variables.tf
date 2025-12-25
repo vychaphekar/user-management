@@ -1,14 +1,14 @@
-variable "name" { 
-    type = string 
+variable "name" {
+  type = string
 }
 
-variable "aws_region" { 
-    type = string 
-    default = "us-east-1" 
+variable "aws_region" {
+  type    = string
+  default = "us-east-1"
 }
 
-variable "ecr_image" { 
-    type = string 
+variable "ecr_image" {
+  type = string
 }
 
 # DNS config

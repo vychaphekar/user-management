@@ -2,7 +2,7 @@ import type { PreTokenGenerationTriggerHandler } from "aws-lambda";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
 
-const REGION = process.env.AWS_REGION || "us-east-1";
+const REGION = process.env.APP_AWS_REGION || process.env.AWS_REGION;
 const USER_PROFILES_TABLE = process.env.USER_PROFILES_TABLE_NAME;
 
 if (!USER_PROFILES_TABLE) {
