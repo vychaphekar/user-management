@@ -68,6 +68,8 @@ module "apigw" {
   name               = var.name
   private_subnet_ids = module.network.private_subnet_ids
   nlb_listener_arn   = module.ecs.nlb_listener_arn
+
+  security_group_ids = [module.network.apigw_vpc_link_security_group_id]
 }
 
 locals {
