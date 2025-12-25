@@ -89,6 +89,9 @@ jobs:
           export TF_VAR_aws_region="${AWS_REGION}"
           export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
 
+          export TF_VAR_subzone_name="innovation.evanyaconsulting.com"
+          export TF_VAR_api_parent_domain="api.innovation.evanyaconsulting.com"
+
           export TF_VAR_vpc_cidr="10.10.0.0/16"
           export TF_VAR_ui_callback_urls='["https://app.innovation.evanyaconsulting.com/callback"]'
           export TF_VAR_ui_logout_urls='["https://app.innovation.evanyaconsulting.com/logout"]'
@@ -164,6 +167,9 @@ jobs:
           export TF_VAR_aws_region="${AWS_REGION}"
           export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
 
+          export TF_VAR_subzone_name="dev.evanyaconsulting.com"
+          export TF_VAR_api_parent_domain="api.dev.evanyaconsulting.com"
+
           export TF_VAR_vpc_cidr="10.20.0.0/16"
           export TF_VAR_ui_callback_urls='["https://app.dev.evanyaconsulting.com/callback"]'
           export TF_VAR_ui_logout_urls='["https://app.dev.evanyaconsulting.com/logout"]'
@@ -235,6 +241,9 @@ jobs:
           export TF_VAR_name="qa"
           export TF_VAR_aws_region="${AWS_REGION}"
           export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
+          
+          export TF_VAR_subzone_name="qa.evanyaconsulting.com"
+          export TF_VAR_api_parent_domain="api.qa.evanyaconsulting.com"
 
           # NEW REQUIRED VARS (no localhost)
           export TF_VAR_vpc_cidr="10.30.0.0/16"
@@ -309,6 +318,9 @@ jobs:
           export TF_VAR_name="prod"
           export TF_VAR_aws_region="${AWS_REGION}"
           export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
+
+          export TF_VAR_subzone_name="api.evanyaconsulting.com"
+          export TF_VAR_api_parent_domain="api.evanyaconsulting.com"
 
           # NEW REQUIRED VARS (no localhost)
           export TF_VAR_vpc_cidr="10.40.0.0/16"
