@@ -84,6 +84,9 @@ resource "aws_cognito_user_pool" "this" {
 
   lambda_config {
     pre_token_generation = aws_lambda_function.pre_token_generation.arn
+    define_auth_challenge          = aws_lambda_function.define_auth_challenge.arn
+    create_auth_challenge          = aws_lambda_function.create_auth_challenge.arn
+    verify_auth_challenge_response = aws_lambda_function.verify_auth_challenge.arn
   }
 }
 

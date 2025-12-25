@@ -13,6 +13,7 @@ resource "aws_route53_record" "validation" {
     }
   }
 
+  allow_overwrite = true
   zone_id = var.zone_id
   name    = each.value.name
   type    = each.value.type
