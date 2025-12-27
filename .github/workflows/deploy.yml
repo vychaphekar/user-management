@@ -89,12 +89,12 @@ jobs:
           export TF_VAR_aws_region="${AWS_REGION}"
           export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
 
-          export TF_VAR_subzone_name="innovation.evanyaconsulting.com"
-          export TF_VAR_api_parent_domain="api.innovation.evanyaconsulting.com"
+          export TF_VAR_subzone_name="innovation.fostercareca.com"
+          export TF_VAR_api_parent_domain="api.innovation.fostercareca.com"
 
           export TF_VAR_vpc_cidr="10.10.0.0/16"
-          export TF_VAR_ui_callback_urls='["https://app.innovation.evanyaconsulting.com/callback"]'
-          export TF_VAR_ui_logout_urls='["https://app.innovation.evanyaconsulting.com/logout"]'
+          export TF_VAR_ui_callback_urls='["https://app.innovation.fostercareca.com/callback"]'
+          export TF_VAR_ui_logout_urls='["https://app.innovation.fostercareca.com/logout"]'
 
           bash infra/terraform/scripts/tfplan.sh innovation
           conftest test infra/terraform/envs/innovation/plan.json -p infra/terraform/policies/opa/rules
@@ -105,12 +105,12 @@ jobs:
           export TF_VAR_aws_region="${AWS_REGION}"
           export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
 
-          export TF_VAR_subzone_name="innovation.evanyaconsulting.com"
-          export TF_VAR_api_parent_domain="api.innovation.evanyaconsulting.com"
+          export TF_VAR_subzone_name="innovation.fostercareca.com"
+          export TF_VAR_api_parent_domain="api.innovation.fostercareca.com"
 
           export TF_VAR_vpc_cidr="10.10.0.0/16"
-          export TF_VAR_ui_callback_urls='["https://app.innovation.evanyaconsulting.com/callback"]'
-          export TF_VAR_ui_logout_urls='["https://app.innovation.evanyaconsulting.com/logout"]'
+          export TF_VAR_ui_callback_urls='["https://app.innovation.fostercareca.com/callback"]'
+          export TF_VAR_ui_logout_urls='["https://app.innovation.fostercareca.com/logout"]'
 
           bash infra/terraform/scripts/tfapply.sh innovation
 
@@ -170,12 +170,12 @@ jobs:
           export TF_VAR_aws_region="${AWS_REGION}"
           export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
 
-          export TF_VAR_subzone_name="dev.evanyaconsulting.com"
-          export TF_VAR_api_parent_domain="api.dev.evanyaconsulting.com"
+          export TF_VAR_subzone_name="dev.fostercareca.com"
+          export TF_VAR_api_parent_domain="api.dev.fostercareca.com"
 
           export TF_VAR_vpc_cidr="10.20.0.0/16"
-          export TF_VAR_ui_callback_urls='["https://app.dev.evanyaconsulting.com/callback"]'
-          export TF_VAR_ui_logout_urls='["https://app.dev.evanyaconsulting.com/logout"]'
+          export TF_VAR_ui_callback_urls='["https://app.dev.fostercareca.com/callback"]'
+          export TF_VAR_ui_logout_urls='["https://app.dev.fostercareca.com/logout"]'
 
           bash infra/terraform/scripts/tfplan.sh dev
           conftest test infra/terraform/envs/dev/plan.json -p infra/terraform/policies/opa/rules
@@ -186,12 +186,12 @@ jobs:
           export TF_VAR_aws_region="${AWS_REGION}"
           export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
 
-          export TF_VAR_subzone_name="dev.evanyaconsulting.com"
-          export TF_VAR_api_parent_domain="api.dev.evanyaconsulting.com"
+          export TF_VAR_subzone_name="dev.fostercareca.com"
+          export TF_VAR_api_parent_domain="api.dev.fostercareca.com"
 
           export TF_VAR_vpc_cidr="10.20.0.0/16"
-          export TF_VAR_ui_callback_urls='["https://app.dev.evanyaconsulting.com/callback"]'
-          export TF_VAR_ui_logout_urls='["https://app.dev.evanyaconsulting.com/logout"]'
+          export TF_VAR_ui_callback_urls='["https://app.dev.fostercareca.com/callback"]'
+          export TF_VAR_ui_logout_urls='["https://app.dev.fostercareca.com/logout"]'
 
           bash infra/terraform/scripts/tfapply.sh dev
 
@@ -248,13 +248,13 @@ jobs:
           export TF_VAR_aws_region="${AWS_REGION}"
           export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
           
-          export TF_VAR_subzone_name="qa.evanyaconsulting.com"
-          export TF_VAR_api_parent_domain="api.qa.evanyaconsulting.com"
+          export TF_VAR_subzone_name="qa.fostercareca.com"
+          export TF_VAR_api_parent_domain="api.qa.fostercareca.com"
 
           # NEW REQUIRED VARS (no localhost)
           export TF_VAR_vpc_cidr="10.30.0.0/16"
-          export TF_VAR_ui_callback_urls='["https://app.qa.evanyaconsulting.com/callback"]'
-          export TF_VAR_ui_logout_urls='["https://app.qa.evanyaconsulting.com/logout"]'
+          export TF_VAR_ui_callback_urls='["https://app.qa.fostercareca.com/callback"]'
+          export TF_VAR_ui_logout_urls='["https://app.qa.fostercareca.com/logout"]'
 
           bash infra/terraform/scripts/tfplan.sh qa
           conftest test infra/terraform/envs/qa/plan.json -p infra/terraform/policies/opa/rules
@@ -265,13 +265,13 @@ jobs:
           export TF_VAR_aws_region="${AWS_REGION}"
           export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
 
-          export TF_VAR_subzone_name="qa.evanyaconsulting.com"
-          export TF_VAR_api_parent_domain="api.qa.evanyaconsulting.com"
+          export TF_VAR_subzone_name="qa.fostercareca.com"
+          export TF_VAR_api_parent_domain="api.qa.fostercareca.com"
 
           # NEW REQUIRED VARS (no localhost)
           export TF_VAR_vpc_cidr="10.30.0.0/16"
-          export TF_VAR_ui_callback_urls='["https://app.qa.evanyaconsulting.com/callback"]'
-          export TF_VAR_ui_logout_urls='["https://app.qa.evanyaconsulting.com/logout"]'
+          export TF_VAR_ui_callback_urls='["https://app.qa.fostercareca.com/callback"]'
+          export TF_VAR_ui_logout_urls='["https://app.qa.fostercareca.com/logout"]'
 
           bash infra/terraform/scripts/tfapply.sh qa
   
@@ -328,13 +328,13 @@ jobs:
           export TF_VAR_aws_region="${AWS_REGION}"
           export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
 
-          export TF_VAR_subzone_name="api.evanyaconsulting.com"
-          export TF_VAR_api_parent_domain="api.evanyaconsulting.com"
+          export TF_VAR_subzone_name="api.fostercareca.com"
+          export TF_VAR_api_parent_domain="api.fostercareca.com"
 
           # NEW REQUIRED VARS (no localhost)
           export TF_VAR_vpc_cidr="10.40.0.0/16"
-          export TF_VAR_ui_callback_urls='["https://app.evanyaconsulting.com/callback"]'
-          export TF_VAR_ui_logout_urls='["https://app.evanyaconsulting.com/logout"]'
+          export TF_VAR_ui_callback_urls='["https://app.fostercareca.com/callback"]'
+          export TF_VAR_ui_logout_urls='["https://app.fostercareca.com/logout"]'
 
           bash infra/terraform/scripts/tfplan.sh prod
           conftest test infra/terraform/envs/prod/plan.json -p infra/terraform/policies/opa/rules
@@ -345,12 +345,12 @@ jobs:
           export TF_VAR_aws_region="${AWS_REGION}"
           export TF_VAR_ecr_image="${{ steps.img.outputs.image }}"
 
-          export TF_VAR_subzone_name="api.evanyaconsulting.com"
-          export TF_VAR_api_parent_domain="api.evanyaconsulting.com"
+          export TF_VAR_subzone_name="api.fostercareca.com"
+          export TF_VAR_api_parent_domain="api.fostercareca.com"
 
           # NEW REQUIRED VARS (no localhost)
           export TF_VAR_vpc_cidr="10.40.0.0/16"
-          export TF_VAR_ui_callback_urls='["https://app.evanyaconsulting.com/callback"]'
-          export TF_VAR_ui_logout_urls='["https://app.evanyaconsulting.com/logout"]'
+          export TF_VAR_ui_callback_urls='["https://app.fostercareca.com/callback"]'
+          export TF_VAR_ui_logout_urls='["https://app.fostercareca.com/logout"]'
 
           bash infra/terraform/scripts/tfapply.sh prod

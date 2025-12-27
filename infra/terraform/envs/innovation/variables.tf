@@ -13,9 +13,8 @@ variable "ecr_image" {
 
 # DNS config
 variable "root_zone_name" {
-  type        = string
-  default     = "evanyaconsulting.com"
-  description = "Root public zone name (prod/shared account owns this zone)"
+  type    = string
+  default = "fostercareca.com"
 }
 
 variable "subzone_name" {

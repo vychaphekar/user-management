@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       subzone_name:
-        description: "e.g. dev.evanyaconsulting.com"
+        description: "e.g. dev.fostercareca.com"
         required: true
       name_servers:
         description: "Comma-separated NS list from env account hosted zone output"
@@ -56,7 +56,7 @@ jobs:
 
                     terraform apply -auto-approve -input=false \
                         -var="aws_region=${AWS_REGION}" \
-                        -var="root_zone_name=evanyaconsulting.com" \
+                        -var="root_zone_name=fostercareca.com" \
                         -var="subzone_name=${{ inputs.subzone_name }}" \
                         -var="subzone_name_servers=${NS_JSON}"
                     env:

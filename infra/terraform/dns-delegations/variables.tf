@@ -5,12 +5,12 @@ variable "aws_region" {
 
 variable "root_zone_name" {
   type    = string
-  default = "evanyaconsulting.com"
+  default = "fostercareca.com"
 }
 
 variable "subzone_name" {
   type        = string
-  description = "e.g. dev.evanyaconsulting.com OR api.evanyaconsulting.com"
+  description = "e.g. dev.fostercareca.com OR api.fostercareca.com"
 }
 
 variable "subzone_name_servers" {

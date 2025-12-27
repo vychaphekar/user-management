@@ -130,6 +130,6 @@ jobs:
 
                     terraform apply -auto-approve -input=false \
                         -var="aws_region=${AWS_REGION}" \
-                        -var="root_zone_name=evanyaconsulting.com" \
+                        -var="root_zone_name=fostercareca.com" \
                         -var="subzone_name=${SUBZONE_NAME}" \
                         -var="subzone_name_servers=${NS_JSON}"

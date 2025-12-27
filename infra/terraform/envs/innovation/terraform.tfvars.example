@@ -2,5 +2,5 @@ name            = "sandbox"
 aws_region      = "us-east-1"
 ecr_image       = "111111111111.dkr.ecr.us-east-1.amazonaws.com/user-service:REPLACE"
 
-subzone_name     = "sandbox.evanyaconsulting.com"
-api_parent_domain = "api.sandbox.evanyaconsulting.com"
+subzone_name      = "innovation.fostercareca.com"
+api_parent_domain = "api.innovation.fostercareca.com"
