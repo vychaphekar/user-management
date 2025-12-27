@@ -40,6 +40,7 @@ jobs:
     env:
       TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
       TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+      TF_VAR_certificate_arn: ${{ secrets.TF_VAR_certificate_arn }}
     steps:
       - uses: actions/checkout@v4
 
@@ -203,6 +204,7 @@ jobs:
     env:
       TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
       TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+      TF_VAR_certificate_arn: ${{ secrets.TF_VAR_certificate_arn }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -283,6 +285,7 @@ jobs:
     env:
       TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
       TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
+      TF_VAR_certificate_arn: ${{ secrets.TF_VAR_certificate_arn }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
