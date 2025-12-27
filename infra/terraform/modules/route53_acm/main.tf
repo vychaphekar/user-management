@@ -4,11 +4,6 @@ resource "aws_acm_certificate" "cert" {
   validation_method         = "DNS"
 }
 
-variable "manage_route53_validation" {
-  type    = bool
-  default = true
-}
-
 resource "aws_route53_record" "validation" {
   for_each = var.manage_route53_validation ? {
     for dvo in aws_acm_certificate.cert.domain_validation_options : dvo.domain_name => {
