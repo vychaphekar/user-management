@@ -11,15 +11,9 @@ variable "ecr_image" {
   type = string
 }
 
-# DNS config
-variable "root_zone_name" {
-  type    = string
-  default = "fostercareca.com"
-}
-
-variable "subzone_name" {
+variable "certificate_arn" {
   type        = string
-  description = "Nonprod: dev.evanyaconsulting.com / qa... / innovation...  Prod: evanyaconsulting.com"
+  description = "ACM certificate ARN for api_parent_domain (and optionally wildcard). Must be in same region as API Gateway custom domain."
 }
 
 variable "api_parent_domain" {

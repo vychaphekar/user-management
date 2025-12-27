@@ -17,14 +17,3 @@ resource "aws_apigatewayv2_api_mapping" "mapping" {
   stage       = var.apigw_stage_name
 }
 
-resource "aws_route53_record" "alias" {
-  zone_id = var.route53_zone_id
-  name    = local.tenant_domain
-  type    = "A"
-
-  alias {
-    name                   = aws_apigatewayv2_domain_name.tenant.domain_name_configuration[0].target_domain_name
-    zone_id                = aws_apigatewayv2_domain_name.tenant.domain_name_configuration[0].hosted_zone_id
-    evaluate_target_health = false
-  }
-}

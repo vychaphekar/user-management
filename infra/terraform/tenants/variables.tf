@@ -11,11 +11,10 @@ variable "isolation_mode" {
 
 variable "api_parent_domain" {
   type    = string
-  default = "api.evanyaconsulting.com"
+  default = "api.fostercareca.com"
 }
 variable "certificate_arn" { type = string }
 variable "apigw_api_id" { type = string }
-variable "route53_zone_id" { type = string }
 
 variable "tenant_table_name" { type = string }
 variable "profile_table_name" { type = string }

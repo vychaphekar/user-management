@@ -33,10 +33,6 @@ on:
         description: "ACM cert ARN for the env API parent domain (api.<env>... or api.evanyaconsulting.com)"
         required: true
 
-      route53_zone_id:
-        description: "Route53 Hosted Zone ID for the delegated zone in the target account"
-        required: true
-
       api_parent_domain:
         description: "e.g. api.dev.evanyaconsulting.com / api.evanyaconsulting.com"
         required: true
@@ -101,7 +97,6 @@ jobs:
             -var="isolation_mode=${{ inputs.isolation_mode }}" \
             -var="apigw_api_id=${{ inputs.apigw_api_id }}" \
             -var="certificate_arn=${{ inputs.certificate_arn }}" \
-            -var="route53_zone_id=${{ inputs.route53_zone_id }}" \
             -var="api_parent_domain=${{ inputs.api_parent_domain }}" \
             -var="tenant_table_name=${{ inputs.tenant_table_name }}" \
             -var="profile_table_name=${{ inputs.profile_table_name }}"

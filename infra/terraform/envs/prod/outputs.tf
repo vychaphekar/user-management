@@ -1,16 +1,3 @@
-# --- Delegated zone in PROD account: api.evanyaconsulting.com ---
-output "delegated_zone_name" {
-  value = var.api_parent_domain
-}
-
-output "delegated_zone_id" {
-  value = module.delegated_zone.zone_id
-}
-
-output "delegated_zone_name_servers" {
-  value = module.delegated_zone.name_servers
-}
-
 output "api_parent_domain" {
   value = var.api_parent_domain
 }
@@ -21,11 +8,7 @@ output "apigw_api_id" {
 }
 
 output "certificate_arn" {
-  value = module.route53_acm.certificate_arn
-}
-
-output "route53_zone_id" {
-  value = module.delegated_zone.zone_id
+  value = var.certificate_arn
 }
 
 output "tenant_table_name" {

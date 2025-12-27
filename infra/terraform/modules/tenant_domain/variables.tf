@@ -6,4 +6,3 @@ variable "apigw_stage_name" {
   type    = string
   default = "$default"
 }
-variable "route53_zone_id" { type = string }

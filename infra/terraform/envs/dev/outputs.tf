@@ -1,15 +1,3 @@
-# --- Delegated zone (used for DNS delegation from shared DNS account) ---
-output "delegated_zone_name" {
-  value = var.subzone_name
-}
-
-output "delegated_zone_id" {
-  value = module.delegated_zone.zone_id
-}
-
-output "delegated_zone_name_servers" {
-  value = module.delegated_zone.name_servers
-}
 
 # --- API parent domain for this env (used for tenant domains) ---
 output "api_parent_domain" {
@@ -22,11 +10,7 @@ output "apigw_api_id" {
 }
 
 output "certificate_arn" {
-  value = module.route53_acm.certificate_arn
-}
-
-output "route53_zone_id" {
-  value = module.delegated_zone.zone_id
+  value = var.certificate_arn
 }
 
 output "tenant_table_name" {

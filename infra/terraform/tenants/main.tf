@@ -21,7 +21,6 @@ module "tenant_domain" {
   certificate_arn   = var.certificate_arn
   apigw_api_id      = var.apigw_api_id
   apigw_stage_name  = "$default"
-  route53_zone_id   = var.route53_zone_id
 }
 
 module "tenant_registry" {

@@ -17,20 +17,6 @@ module "dynamodb" {
   name   = var.name
 }
 
-# Create delegated zone in THIS nonprod account
-module "delegated_zone" {
-  source       = "../../modules/delegated_zone"
-  subzone_name = var.subzone_name
-}
-
-# Issue cert inside delegated zone: api.dev.evanyaconsulting.com + *.api.dev...
-module "route53_acm" {
-  source                    = "../../modules/route53_acm"
-  zone_id                   = module.delegated_zone.zone_id
-  api_parent_domain         = var.api_parent_domain
-  manage_route53_validation = false
-}
-
 module "cognito" {
   source     = "../../modules/cognito"
   name       = var.name
@@ -89,10 +75,9 @@ module "example_tenant_domain" {
   source            = "../../modules/tenant_domain"
   tenant_slug       = "example"
   api_parent_domain = var.api_parent_domain
-  certificate_arn   = module.route53_acm.certificate_arn
+  certificate_arn   = var.certificate_arn
   apigw_api_id      = module.apigw.api_id
   apigw_stage_name  = "$default"
-  route53_zone_id   = module.delegated_zone.zone_id
 }
 
 module "example_tenant_registry" {
