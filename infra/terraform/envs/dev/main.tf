@@ -25,9 +25,10 @@ module "delegated_zone" {
 
 # Issue cert inside delegated zone: api.dev.evanyaconsulting.com + *.api.dev...
 module "route53_acm" {
-  source            = "../../modules/route53_acm"
-  zone_id           = module.delegated_zone.zone_id
-  api_parent_domain = var.api_parent_domain
+  source                    = "../../modules/route53_acm"
+  zone_id                   = module.delegated_zone.zone_id
+  api_parent_domain         = var.api_parent_domain
+  manage_route53_validation = false
 }
 
 module "cognito" {
