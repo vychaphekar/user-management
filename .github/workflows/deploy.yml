@@ -41,8 +41,8 @@ jobs:
       TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
       TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
       TF_VAR_certificate_arn: ${{ secrets.TF_VAR_certificate_arn }}
-      TF_VAR_INVITE_JWT_SECRET: ${{ secrets.TF_VAR_INVITE_JWT_SECRET }}
-      TF_VAR_SES_FROM_EMAIL: ${{ secrets.TF_VAR_SES_FROM_EMAIL }}
+      TF_VAR_invite_jwt_secret: ${{ secrets.TF_VAR_INVITE_JWT_SECRET }}
+      TF_VAR_ses_from_email: ${{ secrets.TF_VAR_SES_FROM_EMAIL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -125,8 +125,8 @@ jobs:
       TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
       TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
       TF_VAR_certificate_arn: ${{ secrets.TF_VAR_certificate_arn }}
-      TF_VAR_INVITE_JWT_SECRET: ${{ secrets.TF_VAR_INVITE_JWT_SECRET }}
-      TF_VAR_SES_FROM_EMAIL: ${{ secrets.TF_VAR_SES_FROM_EMAIL }}
+      TF_VAR_invite_jwt_secret: ${{ secrets.TF_VAR_INVITE_JWT_SECRET }}
+      TF_VAR_ses_from_email: ${{ secrets.TF_VAR_SES_FROM_EMAIL }}
     steps:
       - uses: actions/checkout@v4
 
