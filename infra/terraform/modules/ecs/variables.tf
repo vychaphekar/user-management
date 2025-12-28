@@ -4,3 +4,4 @@ variable "private_subnet_ids" { type = list(string) }
 variable "aws_region" { type = string }
 variable "ecr_image" { type = string }
 variable "env_vars" { type = map(string) }
+variable "apigw_vpc_link_security_group_id" { type = string }

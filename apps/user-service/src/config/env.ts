@@ -8,7 +8,10 @@ const EnvSchema = z.object({
   DEFAULT_USER_POOL_ID: z.string(),
   DEFAULT_USER_POOL_ISSUER: z.string(),
   DEFAULT_APP_CLIENT_ID: z.string(),
-  LOG_LEVEL: z.string().default("info")
+  LOG_LEVEL: z.string().default("info"),
+  INVITE_TABLE_NAME: z.string(),
+  INVITE_JWT_SECRET: z.string(),
+  SES_FROM_EMAIL: z.string()
 });
 
 export type Env = z.infer<typeof EnvSchema>;

@@ -14,4 +14,5 @@ export const usersRoutes: FastifyPluginAsync<{ env: Env }> = async (app, opts) =
   app.post("/:userId/enable", { preHandler: [async (req) => app.requireAuth(req), async (req) => app.requireRole("admin")(req)] }, (req, reply) => h.enable(req, reply));
   app.post("/:userId/disable", { preHandler: [async (req) => app.requireAuth(req), async (req) => app.requireRole("admin")(req)] }, (req, reply) => h.disable(req, reply));
   app.post("/:userId/reset-password", { preHandler: [async (req) => app.requireAuth(req), async (req) => app.requireRole("admin")(req)] }, (req, reply) => h.resetPassword(req, reply));
+  app.post("/invite", { preHandler: [app.requireAuth, app.requireRole("admin")] }, async (req, reply) => h.invite(req, reply));
 };

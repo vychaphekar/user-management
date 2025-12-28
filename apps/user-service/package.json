@@ -15,11 +15,12 @@
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.600.0",
     "@aws-sdk/client-dynamodb": "^3.600.0",
+    "@aws-sdk/client-ses": "^3.958.0",
     "@aws-sdk/lib-dynamodb": "^3.600.0",
     "@fastify/sensible": "^5.6.0",
     "fastify": "^4.28.1",
-    "jwks-rsa": "^3.1.0",
     "jsonwebtoken": "^9.0.2",
+    "jwks-rsa": "^3.1.0",
     "pino": "^9.2.0",
     "zod": "^3.23.8"
   },

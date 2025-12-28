@@ -59,3 +59,9 @@ resource "aws_wafv2_web_acl" "this" {
     }
   }
 }
+
+# IMPORTANT: Without this association, the Web ACL is NOT attached to API Gateway.
+resource "aws_wafv2_web_acl_association" "apigw" {
+  resource_arn = var.apigw_stage_arn
+  web_acl_arn  = aws_wafv2_web_acl.this.arn
+}

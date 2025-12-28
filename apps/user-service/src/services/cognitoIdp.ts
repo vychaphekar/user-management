@@ -8,6 +8,7 @@ import {
   AdminUpdateUserAttributesCommand,
   ListUsersCommand,
   AdminResetUserPasswordCommand,
+  AdminSetUserPasswordCommand,
   SignUpCommand,
   ConfirmSignUpCommand,
   ResendConfirmationCodeCommand,
@@ -15,14 +16,28 @@ import {
   ConfirmForgotPasswordCommand,
   AssociateSoftwareTokenCommand,
   VerifySoftwareTokenCommand,
-  SetUserMFAPreferenceCommand
+  SetUserMFAPreferenceCommand,
+  InitiateAuthCommand,
+  AttributeType,
+  RespondToAuthChallengeCommand
 } from "@aws-sdk/client-cognito-identity-provider";
+import type { AdminCreateUserCommandInput } from "@aws-sdk/client-cognito-identity-provider";
 
 export class CognitoIdp {
   private client: CognitoIdentityProviderClient;
 
   constructor(region: string) {
     this.client = new CognitoIdentityProviderClient({ region });
+  }
+
+  adminCreateUserSuppressed(input: AdminCreateUserCommandInput) {
+    return this.client.send(
+      new AdminCreateUserCommand({
+        ...input,
+        // ensure suppressed even if caller forgets it
+        MessageAction: "SUPPRESS"
+      })
+    );
   }
 
   listUsers(userPoolId: string, limit = 20, paginationToken?: string) {
@@ -67,6 +82,17 @@ export class CognitoIdp {
 
   resetPassword(userPoolId: string, username: string) {
     return this.client.send(new AdminResetUserPasswordCommand({ UserPoolId: userPoolId, Username: username }));
+  }
+
+  adminSetUserPasswordPermanent(userPoolId: string, username: string, password: string) {
+    return this.client.send(
+      new AdminSetUserPasswordCommand({
+        UserPoolId: userPoolId,
+        Username: username,
+        Password: password,
+        Permanent: true
+      })
+    );
   }
 
   signUp(appClientId: string, email: string, password: string, attrs: Record<string, string>) {
@@ -115,6 +141,39 @@ export class CognitoIdp {
     return this.client.send(new SetUserMFAPreferenceCommand({
       AccessToken: accessToken,
       SoftwareTokenMfaSettings: { Enabled: enabled, PreferredMfa: enabled }
+    }));
+  }
+
+  loginUserPassword(appClientId: string, email: string, password: string) {
+    return this.client.send(new InitiateAuthCommand({
+      ClientId: appClientId,
+      AuthFlow: "USER_PASSWORD_AUTH",
+      AuthParameters: {
+        USERNAME: email,
+        PASSWORD: password
+      }
+    }));
+  }
+
+  refreshSession(appClientId: string, refreshToken: string) {
+    return this.client.send(new InitiateAuthCommand({
+      ClientId: appClientId,
+      AuthFlow: "REFRESH_TOKEN_AUTH",
+      AuthParameters: {
+        REFRESH_TOKEN: refreshToken
+      }
+    }));
+  }
+
+  respondToNewPasswordChallenge(appClientId: string, email: string, newPassword: string, session: string) {
+    return this.client.send(new RespondToAuthChallengeCommand({
+      ClientId: appClientId,
+      ChallengeName: "NEW_PASSWORD_REQUIRED",
+      Session: session,
+      ChallengeResponses: {
+        USERNAME: email,
+        NEW_PASSWORD: newPassword
+      }
     }));
   }
 }

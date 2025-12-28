@@ -48,3 +48,23 @@ export const MfaEnableSchema = z.object({
   accessToken: z.string().min(20),
   enabled: z.boolean()
 });
+
+export const AdminInviteUserSchema = z.object({
+  email: z.string().email(),
+  role: z.enum(["admin", "manager", "user"])
+});
+
+export const AcceptInviteSchema = z.object({
+  token: z.string().min(20),
+  newPassword: z.string().min(8)
+});
+
+export const LoginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1)
+});
+
+export const RefreshSchema = z.object({
+  refreshToken: z.string().min(20)
+});
+

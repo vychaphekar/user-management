@@ -46,3 +46,32 @@ resource "aws_dynamodb_table" "user_profiles" {
     Name = "${var.name}-user-profiles"
   }
 }
+
+# One-time invite records (used to enforce single-use + 48h expiration)
+resource "aws_dynamodb_table" "invites" {
+  name         = "${var.name}-invites"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+  range_key    = "sk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+
+  attribute {
+    name = "sk"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "expiresAt"
+    enabled        = true
+  }
+
+  server_side_encryption { enabled = true }
+  point_in_time_recovery { enabled = true }
+
+  tags = { Name = "${var.name}-invites" }
+}
+

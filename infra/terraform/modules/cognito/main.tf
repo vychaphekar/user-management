@@ -82,6 +82,10 @@ resource "aws_cognito_user_pool" "this" {
     }
   }
 
+  lambda_config {
+    pre_token_generation = aws_lambda_function.pre_token_generation.arn
+  }
+
   dynamic "lambda_config" {
     for_each = (
       var.define_auth_challenge_lambda_arn != null ||

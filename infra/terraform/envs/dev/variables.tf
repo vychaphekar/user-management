@@ -36,3 +36,17 @@ variable "ui_logout_urls" {
   description = "Cognito app client logout URLs"
 }
 
+variable "ses_from_email" {
+  type = string
+}
+
+variable "invite_ttl_hours" {
+  type    = number
+  default = 48
+}
+
+variable "invite_jwt_secret" {
+  type      = string
+  sensitive = true
+}
+

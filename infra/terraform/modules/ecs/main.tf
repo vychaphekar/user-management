@@ -12,6 +12,16 @@ resource "aws_security_group" "task_sg" {
   vpc_id = var.vpc_id
 }
 
+# Allow API Gateway VPC Link to reach the service
+resource "aws_security_group_rule" "ingress_from_apigw_vpc_link" {
+  type                     = "ingress"
+  security_group_id        = aws_security_group.task_sg.id
+  from_port                = 3000
+  to_port                  = 3000
+  protocol                 = "tcp"
+  source_security_group_id = var.apigw_vpc_link_security_group_id
+}
+
 resource "aws_lb" "nlb" {
   name               = "${var.name}-nlb"
   internal           = true

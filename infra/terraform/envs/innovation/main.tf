@@ -33,17 +33,24 @@ module "cognito" {
 }
 
 module "ecs" {
-  source             = "../../modules/ecs"
-  name               = var.name
-  vpc_id             = module.network.vpc_id
-  private_subnet_ids = module.network.private_subnet_ids
-  aws_region         = var.aws_region
-  ecr_image          = var.ecr_image
+  source                           = "../../modules/ecs"
+  name                             = var.name
+  vpc_id                           = module.network.vpc_id
+  private_subnet_ids               = module.network.private_subnet_ids
+  aws_region                       = var.aws_region
+  ecr_image                        = var.ecr_image
+  apigw_vpc_link_security_group_id = module.network.apigw_vpc_link_security_group_id
 
   env_vars = {
-    AWS_REGION               = var.aws_region
-    TENANT_TABLE_NAME        = module.dynamodb.tenant_table_name
-    PROFILE_TABLE_NAME       = module.dynamodb.profile_table_name
+    AWS_REGION         = var.aws_region
+    TENANT_TABLE_NAME  = module.dynamodb.tenant_table_name
+    PROFILE_TABLE_NAME = module.dynamodb.profile_table_name
+
+    INVITE_TABLE_NAME = module.dynamodb.invite_table_name
+    INVITE_JWT_SECRET = var.invite_jwt_secret
+    INVITE_TTL_HOURS  = tostring(var.invite_ttl_hours)
+    SES_FROM_EMAIL    = var.ses_from_email
+
     DEFAULT_USER_POOL_ID     = module.cognito.user_pool_id
     DEFAULT_USER_POOL_ISSUER = module.cognito.issuer
     DEFAULT_APP_CLIENT_ID    = module.cognito.app_client_id

@@ -7,7 +7,7 @@ export type UserProfile = {
   tenantId: string;
   userId: string;
   email: string;
-  status: "ACTIVE" | "DISABLED" | "DELETED";
+  status: "INVITED" | "ACTIVE" | "DISABLED" | "DELETED";
   roles: string[];
   displayName?: string;
   createdAt: string;
