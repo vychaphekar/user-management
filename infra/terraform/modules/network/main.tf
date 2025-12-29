@@ -11,10 +11,9 @@ resource "aws_vpc" "this" {
   tags                 = { Name = "${var.name}-vpc" }
 }
 
-# ------------------------------------------------------------
-# Public subnets + IGW + NAT (so private subnets can reach ECR/Logs)
-# ------------------------------------------------------------
-
+# -----------------------------
+# Public networking (IGW + public subnets + public RT)
+# -----------------------------
 resource "aws_internet_gateway" "igw" {
   vpc_id = aws_vpc.this.id
   tags   = { Name = "${var.name}-igw" }
@@ -25,10 +24,7 @@ resource "aws_subnet" "public_a" {
   cidr_block              = cidrsubnet(var.vpc_cidr, 8, 101)
   availability_zone       = data.aws_availability_zones.available.names[0]
   map_public_ip_on_launch = true
-
-  tags = {
-    Name = "${var.name}-public-a"
-  }
+  tags                    = { Name = "${var.name}-public-a" }
 }
 
 resource "aws_subnet" "public_b" {
@@ -36,10 +32,7 @@ resource "aws_subnet" "public_b" {
   cidr_block              = cidrsubnet(var.vpc_cidr, 8, 102)
   availability_zone       = data.aws_availability_zones.available.names[1]
   map_public_ip_on_launch = true
-
-  tags = {
-    Name = "${var.name}-public-b"
-  }
+  tags                    = { Name = "${var.name}-public-b" }
 }
 
 resource "aws_route_table" "public" {
@@ -50,9 +43,7 @@ resource "aws_route_table" "public" {
     gateway_id = aws_internet_gateway.igw.id
   }
 
-  tags = {
-    Name = "${var.name}-public-rt"
-  }
+  tags = { Name = "${var.name}-public-rt" }
 }
 
 resource "aws_route_table_association" "public_a" {
@@ -65,6 +56,9 @@ resource "aws_route_table_association" "public_b" {
   route_table_id = aws_route_table.public.id
 }
 
+# -----------------------------
+# NAT gateway (lives in public subnet)
+# -----------------------------
 resource "aws_eip" "nat" {
   domain = "vpc"
   tags   = { Name = "${var.name}-nat-eip" }
@@ -78,19 +72,15 @@ resource "aws_nat_gateway" "nat" {
   depends_on = [aws_internet_gateway.igw]
 }
 
-# ------------------------------------------------------------
-# Private subnets (ECS tasks, internal NLB, API GW VPC link)
-# ------------------------------------------------------------
-
+# -----------------------------
+# Private subnets + private RT routed to NAT
+# -----------------------------
 resource "aws_subnet" "private_a" {
   vpc_id                  = aws_vpc.this.id
   cidr_block              = cidrsubnet(var.vpc_cidr, 8, 1)
   availability_zone       = data.aws_availability_zones.available.names[0]
   map_public_ip_on_launch = false
-
-  tags = {
-    Name = "${var.name}-private-a"
-  }
+  tags                    = { Name = "${var.name}-private-a" }
 }
 
 resource "aws_subnet" "private_b" {
@@ -98,10 +88,7 @@ resource "aws_subnet" "private_b" {
   cidr_block              = cidrsubnet(var.vpc_cidr, 8, 2)
   availability_zone       = data.aws_availability_zones.available.names[1]
   map_public_ip_on_launch = false
-
-  tags = {
-    Name = "${var.name}-private-b"
-  }
+  tags                    = { Name = "${var.name}-private-b" }
 }
 
 resource "aws_route_table" "private" {
@@ -112,9 +99,7 @@ resource "aws_route_table" "private" {
     nat_gateway_id = aws_nat_gateway.nat.id
   }
 
-  tags = {
-    Name = "${var.name}-private-rt"
-  }
+  tags = { Name = "${var.name}-private-rt" }
 }
 
 resource "aws_route_table_association" "private_a" {
@@ -127,10 +112,9 @@ resource "aws_route_table_association" "private_b" {
   route_table_id = aws_route_table.private.id
 }
 
-# ------------------------------------------------------------
-# Security group for API Gateway VPC Link
-# ------------------------------------------------------------
-
+# -----------------------------
+# SG for API Gateway VPC Link
+# -----------------------------
 resource "aws_security_group" "apigw_vpc_link" {
   name        = "${var.name}-apigw-vpc-link"
   description = "Security group for API Gateway VPC Link"
