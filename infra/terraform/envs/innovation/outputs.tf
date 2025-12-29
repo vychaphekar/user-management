@@ -32,3 +32,7 @@ output "cognito_app_client_id" {
 output "cognito_issuer" {
   value = module.cognito.issuer
 }
+
+output "cloudfront_domain_name" {
+  value = module.cloudfront_api.domain_name
+}

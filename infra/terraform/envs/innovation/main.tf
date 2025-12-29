@@ -67,14 +67,19 @@ module "apigw" {
   security_group_ids = [module.network.apigw_vpc_link_security_group_id]
 }
 
-locals {
-  apigw_stage_arn = "arn:aws:apigateway:${var.aws_region}::/apis/${module.apigw.api_id}/stages/$default"
+# WAF for CloudFront (scope = CLOUDFRONT)
+module "waf_cf" {
+  source = "../../modules/waf_cloudfront"
+  name   = var.name
 }
 
-module "waf" {
-  source          = "../../modules/waf"
-  name            = var.name
-  apigw_stage_arn = local.apigw_stage_arn
+# CloudFront in front of the HTTP API
+module "cloudfront_api" {
+  source       = "../../modules/cloudfront_api"
+  name         = var.name
+  aws_region   = var.aws_region
+  apigw_api_id = module.apigw.api_id
+  web_acl_arn  = module.waf_cf.web_acl_arn
 }
 
 # Example tenant (optional) - uses delegated domain base
