@@ -3,8 +3,8 @@ import { JwtValidator } from "../services/jwtValidator";
 
 declare module "fastify" {
   interface FastifyInstance {
-    requireAuth: (req: any) => Promise<void>;
-    requireRole: (role: string) => (req: any) => Promise<void>;
+    requireAuth: (req: any, reply: any) => Promise<void>;
+    requireRole: (role: string) => (req: any, reply: any) => Promise<void>;
   }
   interface FastifyRequest {
     user?: {
@@ -18,7 +18,7 @@ declare module "fastify" {
 export const authPlugin: FastifyPluginAsync = async (app) => {
   const validator = new JwtValidator();
 
-  app.decorate("requireAuth", async (req: any) => {
+  app.decorate("requireAuth", async (req: any, _reply: any) => {
     const auth = req.headers.authorization || "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
     if (!token) throw app.httpErrors.unauthorized("Missing Bearer token");
@@ -26,11 +26,9 @@ export const authPlugin: FastifyPluginAsync = async (app) => {
     const { cognitoIssuer, cognitoAppClientId, tenantId } = req.tenant;
     const claims = await validator.verify(token, cognitoIssuer, cognitoAppClientId);
 
-    // Enforce tenant match (claim injected by PreTokenGeneration Lambda)
     if (!claims.tenantId) throw app.httpErrors.unauthorized("Missing tenantId claim");
     if (claims.tenantId !== tenantId) throw app.httpErrors.forbidden("Tenant mismatch");
 
-    // Parse roles claim (injected as JSON string)
     const rolesRaw = claims.roles;
     let roles: string[] = [];
     if (Array.isArray(rolesRaw)) {
@@ -48,7 +46,11 @@ export const authPlugin: FastifyPluginAsync = async (app) => {
     req.user = { sub: claims.sub, claims, roles };
   });
 
-  app.decorate("requireRole", (role: string) => async (req: any) => {
+  app.decorate("requireRole", (role: string) => async (req: any, reply: any) => {
+    // Ensure user is populated even if route forgot to call requireAuth
+    if (!req.user) {
+      await app.requireAuth(req, reply);
+    }
     const roles: string[] = req.user?.roles || [];
     if (!roles.includes(role)) throw app.httpErrors.forbidden("Insufficient role");
   });
