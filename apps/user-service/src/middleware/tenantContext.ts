@@ -2,6 +2,12 @@ import { FastifyPluginAsync } from "fastify";
 import { parseTenantFromHost } from "../utils/host";
 import { TenantRegistry } from "../services/tenantRegistry";
 import { Env } from "../config/env";
+import fp from "fastify-plugin";
+import { FastifyInstance } from "fastify";
+
+interface TenantContextOpts {
+  env: Env;
+}
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -18,7 +24,7 @@ declare module "fastify" {
   }
 }
 
-export const tenantContextPlugin: FastifyPluginAsync<{ env: Env }> = async (app, opts) => {
+export const tenantContextPlugin: FastifyPluginAsync<{ env: Env }> = fp(async (app: FastifyInstance, opts: TenantContextOpts) => {
   const { env } = opts;
   const registry = new TenantRegistry(env.AWS_REGION, env.TENANT_TABLE_NAME);
 
@@ -48,4 +54,4 @@ export const tenantContextPlugin: FastifyPluginAsync<{ env: Env }> = async (app,
       profileTableName
     };
   });
-};
+});

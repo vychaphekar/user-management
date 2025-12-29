@@ -1,5 +1,6 @@
 import { FastifyPluginAsync } from "fastify";
 import { JwtValidator } from "../services/jwtValidator";
+import fp from "fastify-plugin";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -15,7 +16,7 @@ declare module "fastify" {
   }
 }
 
-export const authPlugin: FastifyPluginAsync = async (app) => {
+export const authPlugin: FastifyPluginAsync = fp(async (app) => {
   const validator = new JwtValidator();
 
   app.decorate("requireAuth", async (req: any, _reply: any) => {
@@ -54,4 +55,4 @@ export const authPlugin: FastifyPluginAsync = async (app) => {
     const roles: string[] = req.user?.roles || [];
     if (!roles.includes(role)) throw app.httpErrors.forbidden("Insufficient role");
   });
-};
+});
