@@ -12,6 +12,10 @@ resource "aws_security_group" "task_sg" {
   vpc_id = var.vpc_id
 }
 
+data "aws_vpc" "this" {
+  id = var.vpc_id
+}
+
 # Allow API Gateway VPC Link to reach the service
 resource "aws_security_group_rule" "ingress_from_apigw_vpc_link" {
   type                     = "ingress"
@@ -20,6 +24,16 @@ resource "aws_security_group_rule" "ingress_from_apigw_vpc_link" {
   to_port                  = 3000
   protocol                 = "tcp"
   source_security_group_id = var.apigw_vpc_link_security_group_id
+}
+
+# Allow NLB health checks / traffic from within the VPC (NLB preserves source IP)
+resource "aws_security_group_rule" "ingress_from_vpc" {
+  type              = "ingress"
+  security_group_id = aws_security_group.task_sg.id
+  from_port         = 3000
+  to_port           = 3000
+  protocol          = "tcp"
+  cidr_blocks       = [data.aws_vpc.this.cidr_block]
 }
 
 resource "aws_lb" "nlb" {
