@@ -9,14 +9,22 @@ export const corsPlugin: FastifyPluginAsync = fp(async (app) => {
       if (!origin) {
         return cb(null, true);
       }
-      // Allow all subdomains of fostercareca.com over HTTPS
-      const allowed = /^https:\/\/.*\.fostercareca\.com$/;
 
-      if (allowed.test(origin)) {
-        cb(null, true);
-      } else {
-        cb(new Error("Not allowed by CORS"), false);
+      const frontendUrl = "https://app.innovation.fostercareca.com";
+
+      // Allow current production frontend explicitly
+      if (origin === frontendUrl) {
+        return cb(null, true);
       }
+
+      // Allow future environments: app.<env>.fostercareca.com
+      const futureSubdomains = /^https:\/\/app\.[a-z0-9-]+\.fostercareca\.com$/;
+
+      if (futureSubdomains.test(origin)) {
+        return cb(null, true);
+      }
+
+      cb(new Error("Not allowed by CORS"), false);
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
