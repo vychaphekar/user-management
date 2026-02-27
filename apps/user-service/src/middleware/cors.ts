@@ -28,5 +28,6 @@ export const corsPlugin: FastifyPluginAsync = fp(async (app) => {
     },
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
+    preflight: true
   });
 });

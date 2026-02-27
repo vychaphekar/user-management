@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import sensible from "@fastify/sensible";
 import { Env } from "./config/env";
 import { requestIdPlugin } from "./middleware/requestId";
-import { corsPlugin } from "./middleware/cors";
+// import { corsPlugin } from "./middleware/cors";
 import { errorHandler } from "./middleware/errorHandler";
 import { tenantContextPlugin } from "./middleware/tenantContext";
 import { authPlugin } from "./middleware/auth";
@@ -12,7 +12,7 @@ export async function buildServer(env: Env) {
   const app = Fastify({ logger: true });
 
   await app.register(sensible);
-  await app.register(corsPlugin);
+  // await app.register(corsPlugin);
   await app.register(requestIdPlugin);
   app.setErrorHandler(errorHandler);
 
