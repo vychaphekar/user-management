@@ -19,6 +19,7 @@ declare module "fastify" {
       cognitoIssuer: string;
       cognitoAppClientId: string;
       profileTableName: string;
+      uiBaseUrl?: string;
     };
   }
 }
@@ -82,6 +83,7 @@ export const tenantContextPlugin: FastifyPluginAsync<{ env: Env }> = fp(
         cognitoIssuer: issuer,
         cognitoAppClientId: appClientId,
         profileTableName,
+        uiBaseUrl: t.uiBaseUrl,
       };
     });
   }
