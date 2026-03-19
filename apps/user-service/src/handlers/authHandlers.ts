@@ -148,20 +148,29 @@ export function authHandlers(env: Env) {
                   const res = await fetch("", {
                     method: "POST",
                     headers: { "content-type": "application/json" },
-                    body: JSON.stringify({ token, newPassword: p1 })
+                    body: JSON.stringify({ token, newPassword: p1 }),
+                    redirect: "manual"
                   });
 
-                  if (res.redirected) {
-                    window.location.href = res.url;
+                  // Handle redirect response (302, 303, 307, 308)
+                  if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {
+                    window.location.href = res.headers.get("location");
                     return;
                   }
 
                   if (!res.ok) {
-                    const data = await res.json().catch(() => ({}));
-                    alert(data.message || "Failed to set password.");
+                    let errorMsg = "Failed to set password.";
+                    try {
+                      const data = await res.json();
+                      errorMsg = data.message || errorMsg;
+                    } catch (e) {
+                      errorMsg = "Server error: " + res.statusText;
+                    }
+                    alert(errorMsg);
                     return;
                   }
 
+                  // If we get here, assume success
                   window.location.href = window.location.origin;
                 } catch (err) {
                   alert("Network error. Please try again.");
@@ -176,21 +185,41 @@ export function authHandlers(env: Env) {
       }
 
       // POST: accept invite + set password
+      if (!req.body || typeof req.body !== "object") {
+        return reply.code(400).send({ message: "Invalid request body. Expected JSON with 'token' and 'newPassword' fields." });
+      }
+
       const rawToken = (req.body as any)?.token;
       const rawPassword = (req.body as any)?.newPassword;
 
-      const body = AcceptInviteSchema.parse({ token: rawToken, newPassword: rawPassword });
+      if (!rawToken || !rawPassword) {
+        return reply.code(400).send({ message: "Missing required fields: token and newPassword" });
+      }
+
+      let body;
+      try {
+        body = AcceptInviteSchema.parse({ token: rawToken, newPassword: rawPassword });
+      } catch (e: any) {
+        return reply.code(400).send({ message: `Validation error: ${e.message}` });
+      }
+
       const token = body.token;
       const newPassword = body.newPassword;
 
       // 1) Verify JWT (signature + exp)
-      const payload = verifyInviteToken(inviteSecret, token) as {
-        tenantId: string;
-        inviteId: string;
-        userId: string;
-        email: string;
-        expiresAt: number;
-      };
+      let payload;
+      try {
+        payload = verifyInviteToken(inviteSecret, token) as {
+          tenantId: string;
+          inviteId: string;
+          userId: string;
+          email: string;
+          expiresAt: number;
+        };
+      } catch (e: any) {
+        req.log.error({ error: e.message }, "Token verification failed");
+        return reply.code(400).send({ message: "Invite link is invalid or expired." });
+      }
 
       if (!payload?.tenantId || !payload?.inviteId || !payload?.email) {
         return reply.code(400).send({ message: "Invalid invite token" });
@@ -211,18 +240,30 @@ export function authHandlers(env: Env) {
       }
 
       // 3) Set Cognito password permanently (no temp password needed)
-      await idp.adminSetUserPasswordPermanent(
-        tenant.cognitoUserPoolId,
-        payload.email.toLowerCase(),
-        newPassword
-      );
+      try {
+        await idp.adminSetUserPasswordPermanent(
+          tenant.cognitoUserPoolId,
+          payload.email.toLowerCase(),
+          newPassword
+        );
+      } catch (e: any) {
+        req.log.error({ email: payload.email, error: e.message }, "Failed to set password");
+        return reply.code(500).send({ message: "Failed to set password. Please try again or contact support." });
+      }
 
       // 4) Immediately log the user in (USER_PASSWORD_AUTH)
-      const loginOut = await idp.loginUserPassword(
-        tenant.cognitoAppClientId,
-        payload.email.toLowerCase(),
-        newPassword
-      );
+      let loginOut;
+      try {
+        loginOut = await idp.loginUserPassword(
+          tenant.cognitoAppClientId,
+          payload.email.toLowerCase(),
+          newPassword
+        );
+      } catch (e: any) {
+        req.log.error({ email: payload.email, error: e.message }, "Failed to auto-login after password set");
+        // User can still log in manually from the login page
+        return reply.redirect(302, `${uiBaseUrl.replace(/\/$/, "")}/login?invite=accepted`);
+      }
 
       const accessToken = loginOut.AuthenticationResult?.AccessToken;
       const idToken = loginOut.AuthenticationResult?.IdToken;

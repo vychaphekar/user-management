@@ -34,7 +34,8 @@ export function userHandlers(env: Env) {
 
       const store = new ProfileStore(env.AWS_REGION, tenant.profileTableName);
       const profile = await store.get(tenant.tenantId, userId);
-      if (!profile) throw (req.server as any).httpErrors.notFound("User not found");
+      if (!profile)
+        throw (req.server as any).httpErrors.notFound("User not found");
       return reply.send(profile);
     },
 
@@ -46,13 +47,21 @@ export function userHandlers(env: Env) {
       const tenant = (req as any).tenant;
       const body = AdminCreateUserSchema.parse(req.body);
 
-      await idp.createUser(tenant.cognitoUserPoolId, body.email, body.tempPassword);
+      await idp.createUser(
+        tenant.cognitoUserPoolId,
+        body.email,
+        body.tempPassword,
+      );
 
       // Ensure tenantId attribute exists for fail-closed PreTokenGeneration
-      await idp.updateUser(tenant.cognitoUserPoolId, body.email, { "custom:tenantId": tenant.tenantId });
+      await idp.updateUser(tenant.cognitoUserPoolId, body.email, {
+        "custom:tenantId": tenant.tenantId,
+      });
 
       const admin = await idp.getUser(tenant.cognitoUserPoolId, body.email);
-      const sub = admin.UserAttributes?.find((a) => a.Name === "sub")?.Value || body.email;
+      const sub =
+        admin.UserAttributes?.find((a) => a.Name === "sub")?.Value ||
+        body.email;
 
       const store = new ProfileStore(env.AWS_REGION, tenant.profileTableName);
       const now = new Date().toISOString();
@@ -68,7 +77,7 @@ export function userHandlers(env: Env) {
         displayName: body.displayName,
         createdAt: now,
         updatedAt: now,
-        version: 1
+        version: 1,
       });
 
       return reply.status(201).send({ ok: true, userId: sub });
@@ -96,15 +105,28 @@ export function userHandlers(env: Env) {
       const body = AdminCreateUserSchema.parse(req.body); // reuse existing schema (email + roles + displayName + tempPassword)
       const email = body.email.toLowerCase();
 
-      const inviteTable = (env as any).INVITE_TABLE_NAME || process.env.INVITE_TABLE_NAME;
-      const inviteSecret = (env as any).INVITE_JWT_SECRET || process.env.INVITE_JWT_SECRET;
-      const sesFromEmail = (env as any).SES_FROM_EMAIL || process.env.SES_FROM_EMAIL;
-      const ttlHoursRaw = (env as any).INVITE_TTL_HOURS || process.env.INVITE_TTL_HOURS;
+      const inviteTable =
+        (env as any).INVITE_TABLE_NAME || process.env.INVITE_TABLE_NAME;
+      const inviteSecret =
+        (env as any).INVITE_JWT_SECRET || process.env.INVITE_JWT_SECRET;
+      const sesFromEmail =
+        (env as any).SES_FROM_EMAIL || process.env.SES_FROM_EMAIL;
+      const ttlHoursRaw =
+        (env as any).INVITE_TTL_HOURS || process.env.INVITE_TTL_HOURS;
       const ttlHours = Number(ttlHoursRaw || 48);
 
-      if (!inviteTable) return reply.code(500).send({ message: "INVITE_TABLE_NAME not configured" });
-      if (!inviteSecret) return reply.code(500).send({ message: "INVITE_JWT_SECRET not configured" });
-      if (!sesFromEmail) return reply.code(500).send({ message: "SES_FROM_EMAIL not configured" });
+      if (!inviteTable)
+        return reply
+          .code(500)
+          .send({ message: "INVITE_TABLE_NAME not configured" });
+      if (!inviteSecret)
+        return reply
+          .code(500)
+          .send({ message: "INVITE_JWT_SECRET not configured" });
+      if (!sesFromEmail)
+        return reply
+          .code(500)
+          .send({ message: "SES_FROM_EMAIL not configured" });
 
       // IMPORTANT: tenant registry must include uiBaseUrl (recommended)
       // Example: https://app.innovation.fostercareca.com
@@ -112,7 +134,7 @@ export function userHandlers(env: Env) {
       if (!uiBaseUrl) {
         return reply.code(500).send({
           message:
-            "tenant.uiBaseUrl is missing. Add uiBaseUrl to the tenant registry item so invites can link to the UI."
+            "tenant.uiBaseUrl is missing. Add uiBaseUrl to the tenant registry item so invites can link to the UI.",
         });
       }
 
@@ -125,14 +147,16 @@ export function userHandlers(env: Env) {
         UserAttributes: [
           { Name: "email", Value: email },
           { Name: "email_verified", Value: "true" },
-          { Name: "custom:tenantId", Value: tenant.tenantId }
+          { Name: "custom:tenantId", Value: tenant.tenantId },
         ],
-        MessageAction: "SUPPRESS"
+        MessageAction: "SUPPRESS",
       });
 
       // 2) Get Cognito sub (stable userId)
       const createdUser = await idp.getUser(tenant.cognitoUserPoolId, email);
-      const sub = createdUser.UserAttributes?.find((a) => a.Name === "sub")?.Value || email;
+      const sub =
+        createdUser.UserAttributes?.find((a) => a.Name === "sub")?.Value ||
+        email;
 
       // 3) Write INVITED profile
       const store = new ProfileStore(env.AWS_REGION, tenant.profileTableName);
@@ -149,7 +173,7 @@ export function userHandlers(env: Env) {
         displayName: body.displayName,
         createdAt: nowIso,
         updatedAt: nowIso,
-        version: 1
+        version: 1,
       });
 
       // 4) Create invite record (one-time + TTL 48 hours)
@@ -162,23 +186,36 @@ export function userHandlers(env: Env) {
         inviteId,
         userId: sub,
         email,
-        createdBy: ((req as any).user?.email || (req as any).user?.sub || "admin") as string,
-        expiresAt
+        createdBy: ((req as any).user?.email ||
+          (req as any).user?.sub ||
+          "admin") as string,
+        expiresAt,
       });
 
-      // 5) Generate JWT token
+      // 5) Generate JWT token with correct payload structure
       const token = signInviteToken(
         inviteSecret,
-        { jti: inviteId, tid: tenant.tenantId, email },
-        ttlHours * 60 * 60
+        {
+          inviteId,
+          tenantId: tenant.tenantId,
+          userId: sub,
+          email,
+          expiresAt,
+        },
+        ttlHours * 60 * 60,
       );
 
       // 6) Send SES invite email
       // B-flow: link lands on API and the API renders the password set page.
-      const proto = (req.headers["x-forwarded-proto"] as string) || "https";
-      const host = (req.headers["x-forwarded-host"] as string) || (req.headers.host as string);
-      const apiBaseUrl = `${proto}://${host}`;
-      const inviteUrl = `${apiBaseUrl.replace(/\/$/, "")}/v1/auth/invite/accept?token=${encodeURIComponent(token)}`;
+      // const proto = (req.headers["x-forwarded-proto"] as string) || "https";
+      // const host =
+      //   (req.headers["x-forwarded-host"] as string) ||
+      //   (req.headers.host as string);
+      // const apiBaseUrl = `${proto}://${host}`;
+      // const inviteUrl = `${apiBaseUrl.replace(/\/$/, "")}/v1/auth/invite/accept?token=${encodeURIComponent(token)}`;
+      
+      // uiBaseUrl is already validated above (returns 500 if missing)
+      const inviteUrl = `${uiBaseUrl.replace(/\/$/, "")}/invite?token=${encodeURIComponent(token)}`;
 
       const emailSvc = new EmailService(env.AWS_REGION, sesFromEmail);
       await emailSvc.sendInvite(email, inviteUrl);
@@ -188,7 +225,7 @@ export function userHandlers(env: Env) {
         userId: sub,
         email,
         inviteId,
-        expiresAt
+        expiresAt,
         // You can also return inviteUrl for testing, but avoid exposing in prod:
         // inviteUrl
       });
@@ -203,8 +240,10 @@ export function userHandlers(env: Env) {
       const updated = await store.update(tenant.tenantId, userId, patch);
 
       // Mirror status to Cognito enable/disable (by email)
-      if (patch.status === "DISABLED") await idp.disableUser(tenant.cognitoUserPoolId, updated.email);
-      if (patch.status === "ACTIVE") await idp.enableUser(tenant.cognitoUserPoolId, updated.email);
+      if (patch.status === "DISABLED")
+        await idp.disableUser(tenant.cognitoUserPoolId, updated.email);
+      if (patch.status === "ACTIVE")
+        await idp.enableUser(tenant.cognitoUserPoolId, updated.email);
 
       return reply.send(updated);
     },
@@ -215,7 +254,8 @@ export function userHandlers(env: Env) {
 
       const store = new ProfileStore(env.AWS_REGION, tenant.profileTableName);
       const profile = await store.get(tenant.tenantId, userId);
-      if (!profile) throw (req.server as any).httpErrors.notFound("User not found");
+      if (!profile)
+        throw (req.server as any).httpErrors.notFound("User not found");
 
       await idp.disableUser(tenant.cognitoUserPoolId, profile.email);
       await store.update(tenant.tenantId, userId, { status: "DELETED" });
@@ -229,10 +269,13 @@ export function userHandlers(env: Env) {
 
       const store = new ProfileStore(env.AWS_REGION, tenant.profileTableName);
       const profile = await store.get(tenant.tenantId, userId);
-      if (!profile) throw (req.server as any).httpErrors.notFound("User not found");
+      if (!profile)
+        throw (req.server as any).httpErrors.notFound("User not found");
 
       await idp.enableUser(tenant.cognitoUserPoolId, profile.email);
-      const updated = await store.update(tenant.tenantId, userId, { status: "ACTIVE" });
+      const updated = await store.update(tenant.tenantId, userId, {
+        status: "ACTIVE",
+      });
       return reply.send(updated);
     },
 
@@ -242,10 +285,13 @@ export function userHandlers(env: Env) {
 
       const store = new ProfileStore(env.AWS_REGION, tenant.profileTableName);
       const profile = await store.get(tenant.tenantId, userId);
-      if (!profile) throw (req.server as any).httpErrors.notFound("User not found");
+      if (!profile)
+        throw (req.server as any).httpErrors.notFound("User not found");
 
       await idp.disableUser(tenant.cognitoUserPoolId, profile.email);
-      const updated = await store.update(tenant.tenantId, userId, { status: "DISABLED" });
+      const updated = await store.update(tenant.tenantId, userId, {
+        status: "DISABLED",
+      });
       return reply.send(updated);
     },
 
@@ -255,10 +301,14 @@ export function userHandlers(env: Env) {
 
       const store = new ProfileStore(env.AWS_REGION, tenant.profileTableName);
       const profile = await store.get(tenant.tenantId, userId);
-      if (!profile) throw (req.server as any).httpErrors.notFound("User not found");
+      if (!profile)
+        throw (req.server as any).httpErrors.notFound("User not found");
 
-      const out = await idp.resetPassword(tenant.cognitoUserPoolId, profile.email);
+      const out = await idp.resetPassword(
+        tenant.cognitoUserPoolId,
+        profile.email,
+      );
       return reply.send({ ok: true, out });
-    }
+    },
   };
 }
