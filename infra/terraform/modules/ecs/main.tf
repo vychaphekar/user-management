@@ -2,6 +2,9 @@ resource "aws_ecs_cluster" "this" {
   name = "${var.name}-cluster"
 }
 
+data "aws_partition" "current" {}
+data "aws_caller_identity" "current" {}
+
 resource "aws_cloudwatch_log_group" "lg" {
   name              = "/ecs/${var.name}-user-service"
   retention_in_days = 30
@@ -88,6 +91,14 @@ resource "aws_iam_role_policy" "task_policy" {
     Version = "2012-10-17",
     Statement = [
       { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query"], Resource = "*" },
+      {
+        Effect = "Allow",
+        Action = ["dynamodb:ConditionCheckItem"],
+        Resource = concat(
+          ["arn:${data.aws_partition.current.partition}:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/${var.env_vars["PROFILE_TABLE_NAME"]}"],
+          var.additional_profile_table_arns
+        )
+      },
       { Effect = "Allow", Action = ["cognito-idp:*"], Resource = "*" }
     ]
   })

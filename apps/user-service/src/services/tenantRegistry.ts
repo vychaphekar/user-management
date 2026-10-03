@@ -11,6 +11,7 @@ export type TenantRecord = {
   cognitoIssuer?: string;
   cognitoAppClientId?: string;
   profileTableName?: string;
+  uiBaseUrl?: string;
 };
 
 export class TenantRegistry {

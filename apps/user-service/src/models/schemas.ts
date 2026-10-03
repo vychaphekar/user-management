@@ -1,4 +1,7 @@
 import { z } from "zod";
+export const PasswordSchema = z.string().min(10).max(256).regex(/[a-z]/).regex(/[A-Z]/).regex(/[0-9]/).regex(/[^a-zA-Z0-9]/);
+export const ChallengeSchema = z.object({ challengeToken: z.string().min(20).max(10000), answer: z.string().min(1).max(256) }).strict();
+
 
 export const RegisterSchema = z.object({
   email: z.string().email(),
@@ -18,7 +21,7 @@ export const EmailOnlySchema = z.object({
 export const ConfirmForgotSchema = z.object({
   email: z.string().email(),
   code: z.string(),
-  newPassword: z.string().min(10)
+  newPassword: PasswordSchema
 });
 
 export const AdminCreateUserSchema = z.object({
@@ -56,7 +59,7 @@ export const AdminInviteUserSchema = z.object({
 
 export const AcceptInviteSchema = z.object({
   token: z.string().min(20),
-  newPassword: z.string().min(8)
+  newPassword: PasswordSchema
 });
 
 export const LoginSchema = z.object({

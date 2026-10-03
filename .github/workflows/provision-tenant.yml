@@ -19,6 +19,9 @@ on:
       tenant_id:
         description: "Tenant UUID"
         required: true
+      ui_base_url:
+        description: "Exact tenant HTTPS application origin, without a trailing slash"
+        required: true
 
       isolation_mode:
         description: "LOGICAL | DEDICATED_POOL | DEDICATED_DB | DEDICATED_ACCOUNT"
@@ -54,6 +57,7 @@ jobs:
     environment: ${{ inputs.target_env }}
 
     env:
+      TF_VAR_ui_base_url: ${{ inputs.ui_base_url }}
       TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
       TF_LOCK_TABLE: ${{ secrets.TF_LOCK_TABLE }}
 

@@ -6,6 +6,10 @@ export const authRoutes: FastifyPluginAsync<{ env: Env }> = async (app, opts) =>
   const h = authHandlers(opts.env);
 
   app.post("/login", async (req, reply) => h.login(req, reply));
+  app.get("/me", { preHandler: [app.requireAuth] }, (req, reply) => h.me(req, reply));
+  app.post("/challenge/setup", (req, reply) => h.setupChallenge(req, reply));
+  app.post("/challenge", (req, reply) => h.challenge(req, reply));
+  app.post("/logout", (req, reply) => h.logout(req, reply));
   app.post("/refresh", async (req, reply) => h.refresh(req, reply));
 
   // B-flow: invite link lands on API
