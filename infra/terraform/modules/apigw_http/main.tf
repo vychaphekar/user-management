@@ -2,13 +2,9 @@ resource "aws_apigatewayv2_api" "this" {
   name          = "${var.name}-http-api"
   protocol_type = "HTTP"
 
-  cors_configuration {
-    allow_credentials = true
-    allow_origins     = ["https://app.${var.name}.fostercareca.com"]
-    allow_methods     = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
-    allow_headers     = ["content-type", "authorization"]
-    max_age           = 600
-  }
+  # Forward OPTIONS and CORS response headers to/from the service. The service
+  # validates the exact UI origin from the tenant registry for every request.
+  # Gateway CORS would override those headers with an environment-wide policy.
 }
 
 resource "aws_apigatewayv2_vpc_link" "this" {

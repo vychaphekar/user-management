@@ -38,7 +38,8 @@ export const tenantContextPlugin: FastifyPluginAsync<{ env: Env }> = fp(
     const { env } = opts;
     const registry = new TenantRegistry(env.AWS_REGION, env.TENANT_TABLE_NAME);
 
-    app.addHook("preHandler", async (req) => {
+    // Resolve the tenant before CORS and before any request-body parsing.
+    app.addHook("onRequest", async (req) => {
       // Prefer forwarded host (API Gateway / CloudFront), fall back to host.
       const rawHost =
         (req.headers["x-forwarded-host"] as string | undefined) ||

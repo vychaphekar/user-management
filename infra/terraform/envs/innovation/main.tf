@@ -97,6 +97,7 @@ module "example_tenant_registry" {
   tenant_table_name  = module.dynamodb.tenant_table_name
   tenant_slug        = "example"
   tenant_id          = "00000000-0000-0000-0000-000000000001"
+  ui_base_url        = "https://app.innovation.fostercareca.com"
   isolation_mode     = "LOGICAL"
   status             = "ACTIVE"
   profile_table_name = module.dynamodb.profile_table_name

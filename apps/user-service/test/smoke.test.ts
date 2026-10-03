@@ -22,6 +22,39 @@ beforeEach(async () => {
   app = await buildServer(env);
 });
 afterEach(async () => { await app?.close(); jest.restoreAllMocks(); });
+test('handles gateway preflight before body parsing or authentication', async () => {
+  const res = await app.inject({ method: 'OPTIONS', url: '/v1/auth/login', headers: {
+    ...headers, 'content-type': 'application/octet-stream',
+    'access-control-request-method': 'POST', 'access-control-request-headers': 'content-type',
+  }, payload: '' });
+  expect(res.statusCode).toBe(204);
+  expect(res.headers['access-control-allow-origin']).toBe(headers.origin);
+  expect(res.headers['access-control-allow-credentials']).toBe('true');
+  expect(res.headers['access-control-allow-methods']).toContain('POST');
+  expect(JwtValidator.prototype.verify).not.toHaveBeenCalled();
+});
+test('rejects untrusted preflight without granting browser access', async () => {
+  const res = await app.inject({ method: 'OPTIONS', url: '/v1/auth/login', headers: {
+    ...headers, origin: 'https://untrusted.example', 'access-control-request-method': 'POST',
+  } });
+  expect(res.statusCode).toBe(403);
+  expect(res.headers['access-control-allow-origin']).toBeUndefined();
+});
+test('keeps parser errors readable to the configured UI', async () => {
+  const res = await app.inject({ method: 'POST', url: '/v1/auth/login', headers: {
+    ...headers, 'content-type': 'application/json',
+  }, payload: '{broken' });
+  expect(res.statusCode).toBe(400);
+  expect(res.headers['access-control-allow-origin']).toBe(headers.origin);
+});
+test('missing tenant UI origin fails closed', async () => {
+  jest.mocked(TenantRegistry.prototype.getTenant).mockResolvedValue({ pk: 'TENANT#alpha', tenantId: 't1', tenantSlug: 'alpha', status: 'ACTIVE', isolationMode: 'LOGICAL' });
+  const res = await app.inject({ method: 'OPTIONS', url: '/v1/auth/login', headers: {
+    ...headers, 'access-control-request-method': 'POST',
+  } });
+  expect(res.statusCode).toBe(403);
+  expect(res.headers['access-control-allow-origin']).toBeUndefined();
+});
 test('rejects requests without a tenant host', async () => {
   const res = await app.inject({ method: 'GET', url: '/healthz', headers: { host: 'api.evanyaconsulting.com' } });
   expect(res.statusCode).toBe(403);
@@ -29,6 +62,8 @@ test('rejects requests without a tenant host', async () => {
 test('requires authentication for the current profile', async () => {
   const res = await app.inject({ method: 'GET', url: '/v1/auth/me', headers });
   expect(res.statusCode).toBe(401);
+  expect(res.headers['access-control-allow-origin']).toBe(headers.origin);
+  expect(res.headers['access-control-allow-credentials']).toBe('true');
 });
 test('returns the current database profile without tokens', async () => {
   const res = await app.inject({ method: 'GET', url: '/v1/auth/me', headers: { ...headers, cookie: '__Host-blueberry-access=test-token' } });
