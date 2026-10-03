@@ -28,6 +28,7 @@ module "tenant_registry" {
   tenant_table_name  = var.tenant_table_name
   tenant_slug        = var.tenant_slug
   tenant_id          = var.tenant_id
+  ui_base_url        = var.ui_base_url
   isolation_mode     = var.isolation_mode
   status             = "ACTIVE"
   profile_table_name = var.profile_table_name

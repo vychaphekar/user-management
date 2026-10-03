@@ -1,314 +1,107 @@
 import { FastifyReply, FastifyRequest } from "fastify";
 import { randomUUID } from "crypto";
+import { z } from "zod";
 import { Env } from "../config/env";
 import { CognitoIdp } from "../services/cognitoIdp";
-import { ProfileStore } from "../services/profileStore";
-import { AdminCreateUserSchema, UpdateUserSchema } from "../models/schemas";
-
-// NEW: invite dependencies (you will add these files)
+import { ProfileStore, ProfilePatch, UserProfile } from "../services/profileStore";
 import { InviteStore } from "../services/inviteStore";
 import { EmailService } from "../services/emailService";
 import { signInviteToken } from "../services/inviteToken";
-
-function nowEpochSeconds(): number {
-  return Math.floor(Date.now() / 1000);
-}
-
+import { publicProfile } from "./authHandlers";
+import { BUILTIN_ROLES, effectivePermissions, Permission } from "../services/roleStore";
+const Roles = z.array(z.string().trim().min(1).max(64).regex(/^[a-z][a-z0-9_]*$/)).min(1).max(20).refine(v => new Set(v).size === v.length, "Duplicate roles");
+const Invite = z.object({ email: z.string().trim().email().max(254).transform(v => v.toLowerCase()), displayName: z.string().trim().min(1).max(150), roles: Roles }).strict();
+const Version = z.object({ version: z.number().int().positive() }).strict();
+const Patch = z.object({ version: z.number().int().positive(), displayName: z.string().trim().min(1).max(150).optional(), roles: Roles.optional(), status: z.enum(["ACTIVE", "DISABLED"]).optional() }).strict().refine(v => v.displayName !== undefined || v.roles !== undefined || v.status !== undefined, "No changes supplied");
+const Params = z.object({ userId: z.string().min(1).max(128) });
+const List = z.object({ limit: z.coerce.number().int().min(1).max(100).default(20), cursor: z.string().max(2048).optional(), search: z.string().trim().max(150).default(""), status: z.enum(["INVITED", "ACTIVE", "DISABLED", "DELETED"]).optional() }).strict();
 export function userHandlers(env: Env) {
   const idp = new CognitoIdp(env.AWS_REGION);
-
-  return {
+  const storeFor = (req: FastifyRequest) => new ProfileStore(env.AWS_REGION, req.tenant.profileTableName);
+  const actor = (req: FastifyRequest) => { if (!req.user) throw req.server.httpErrors.unauthorized(); return req.user.userId; };
+  function requirePermission(req: FastifyRequest, permission: Permission) {
+    if (!req.permissions?.includes(permission)) throw req.server.httpErrors.forbidden("You do not have permission to perform this action");
+  }
+  function validateRoles(req: FastifyRequest, ids: string[]) {
+    requirePermission(req, "users.assign_roles");
+    const catalog = req.roleCatalog!;
+    if (ids.some(id => ![...BUILTIN_ROLES, ...catalog.roles].some(role => role.id === id && role.enabled))) {
+      throw req.server.httpErrors.badRequest("Select enabled roles from this organization");
+    }
+    if (effectivePermissions(ids, catalog).some(permission => !req.permissions?.includes(permission))) {
+      throw req.server.httpErrors.forbidden("You cannot grant permissions you do not hold");
+    }
+  }
+  async function get(req: FastifyRequest) {
+    const { userId } = Params.parse(req.params); const profile = await storeFor(req).get(req.tenant.tenantId, userId);
+    if (!profile) throw req.server.httpErrors.notFound("User not found"); return profile;
+  }
+  async function sendInvite(req: FastifyRequest, profile: UserProfile) {
+    if (!req.tenant.uiBaseUrl || !profile.inviteId || !profile.inviteExpiresAt) throw req.server.httpErrors.serviceUnavailable("Onboarding is not configured");
+    const token = signInviteToken(env.INVITE_JWT_SECRET, { tenantId: req.tenant.tenantId, inviteId: profile.inviteId, userId: profile.userId, email: profile.email }, Math.max(1, profile.inviteExpiresAt - Math.floor(Date.now() / 1000)));
+    await new InviteStore(env.AWS_REGION, env.INVITE_TABLE_NAME).createInvite({ tenantId: req.tenant.tenantId, inviteId: profile.inviteId, userId: profile.userId, email: profile.email, createdBy: actor(req), expiresAt: profile.inviteExpiresAt });
+    const url = new URL("/invite", req.tenant.uiBaseUrl); url.searchParams.set("token", token);
+    try { await new EmailService(env.AWS_REGION, env.SES_FROM_EMAIL).sendInvite(profile.email, url.toString()); }
+    catch { throw req.server.httpErrors.serviceUnavailable("The account was created, but the invitation email could not be sent. Use Resend invitation on the user record."); }
+  }
+  const handlers = {
     async list(req: FastifyRequest, reply: FastifyReply) {
-      const tenant = (req as any).tenant;
-      const limit = Number((req.query as any)?.limit || 20);
-      const cursor = (req.query as any)?.cursor as string | undefined;
-
-      const store = new ProfileStore(env.AWS_REGION, tenant.profileTableName);
-      const out = await store.list(tenant.tenantId, limit, cursor);
-      return reply.send(out);
+      const q = List.parse(req.query); const out = await storeFor(req).list(req.tenant.tenantId, q.limit, q.cursor, q.search, q.status);
+      return reply.send({ items: out.items.map(publicProfile), nextCursor: out.nextCursor });
     },
-
     async get(req: FastifyRequest, reply: FastifyReply) {
-      const tenant = (req as any).tenant;
-      const userId = (req.params as any).userId;
-
-      const store = new ProfileStore(env.AWS_REGION, tenant.profileTableName);
-      const profile = await store.get(tenant.tenantId, userId);
-      if (!profile)
-        throw (req.server as any).httpErrors.notFound("User not found");
-      return reply.send(profile);
+      const profile = await get(req); return reply.send({ user: publicProfile(profile), history: await storeFor(req).history(req.tenant.tenantId, profile.userId) });
     },
-
-    /**
-     * Existing create() kept as-is (creates ACTIVE user immediately).
-     * You can keep this for internal/admin use or migrate to invite-only.
-     */
-    async create(req: FastifyRequest, reply: FastifyReply) {
-      const tenant = (req as any).tenant;
-      const body = AdminCreateUserSchema.parse(req.body);
-
-      await idp.createUser(
-        tenant.cognitoUserPoolId,
-        body.email,
-        body.tempPassword,
-      );
-
-      // Ensure tenantId attribute exists for fail-closed PreTokenGeneration
-      await idp.updateUser(tenant.cognitoUserPoolId, body.email, {
-        "custom:tenantId": tenant.tenantId,
-      });
-
-      const admin = await idp.getUser(tenant.cognitoUserPoolId, body.email);
-      const sub =
-        admin.UserAttributes?.find((a) => a.Name === "sub")?.Value ||
-        body.email;
-
-      const store = new ProfileStore(env.AWS_REGION, tenant.profileTableName);
-      const now = new Date().toISOString();
-
-      await store.create({
-        pk: `TENANT#${tenant.tenantId}`,
-        sk: `USER#${sub}`,
-        tenantId: tenant.tenantId,
-        userId: sub,
-        email: body.email,
-        status: "ACTIVE",
-        roles: body.roles.length ? body.roles : ["user"],
-        displayName: body.displayName,
-        createdAt: now,
-        updatedAt: now,
-        version: 1,
-      });
-
-      return reply.status(201).send({ ok: true, userId: sub });
-    },
-
-    /**
-     * NEW: invite-only onboarding flow (Admin-only route should call this)
-     *
-     * Requirements implemented:
-     * - AdminCreateUser with SUPPRESS (no Cognito email)
-     * - profile written as INVITED
-     * - invite record stored with TTL (48 hours)
-     * - JWT token generated (inviteId + tenantId + email)
-     * - SES invite email sent to tenant.uiBaseUrl
-     *
-     * Env vars required:
-     * - INVITE_TABLE_NAME
-     * - INVITE_JWT_SECRET
-     * - SES_FROM_EMAIL
-     * Optional:
-     * - INVITE_TTL_HOURS (defaults to 48)
-     */
     async invite(req: FastifyRequest, reply: FastifyReply) {
-      const tenant = (req as any).tenant;
-      const body = AdminCreateUserSchema.parse(req.body); // reuse existing schema (email + roles + displayName + tempPassword)
-      const email = body.email.toLowerCase();
-
-      const inviteTable =
-        (env as any).INVITE_TABLE_NAME || process.env.INVITE_TABLE_NAME;
-      const inviteSecret =
-        (env as any).INVITE_JWT_SECRET || process.env.INVITE_JWT_SECRET;
-      const sesFromEmail =
-        (env as any).SES_FROM_EMAIL || process.env.SES_FROM_EMAIL;
-      const ttlHoursRaw =
-        (env as any).INVITE_TTL_HOURS || process.env.INVITE_TTL_HOURS;
-      const ttlHours = Number(ttlHoursRaw || 48);
-
-      if (!inviteTable)
-        return reply
-          .code(500)
-          .send({ message: "INVITE_TABLE_NAME not configured" });
-      if (!inviteSecret)
-        return reply
-          .code(500)
-          .send({ message: "INVITE_JWT_SECRET not configured" });
-      if (!sesFromEmail)
-        return reply
-          .code(500)
-          .send({ message: "SES_FROM_EMAIL not configured" });
-
-      // IMPORTANT: tenant registry must include uiBaseUrl (recommended)
-      // Example: https://app.innovation.fostercareca.com
-      const uiBaseUrl = tenant.uiBaseUrl;
-      if (!uiBaseUrl) {
-        return reply.code(500).send({
-          message:
-            "tenant.uiBaseUrl is missing. Add uiBaseUrl to the tenant registry item so invites can link to the UI.",
-        });
-      }
-
-      // 1) Create user in Cognito without sending Cognito email
-      // NOTE: This requires a new CognitoIdp method: adminCreateUserSuppressed()
-      // We set email_verified=true because onboarding is controlled by our invite flow.
-      await idp.adminCreateUserSuppressed({
-        UserPoolId: tenant.cognitoUserPoolId,
-        Username: email,
-        UserAttributes: [
-          { Name: "email", Value: email },
-          { Name: "email_verified", Value: "true" },
-          { Name: "custom:tenantId", Value: tenant.tenantId },
-        ],
-        MessageAction: "SUPPRESS",
-      });
-
-      // 2) Get Cognito sub (stable userId)
-      const createdUser = await idp.getUser(tenant.cognitoUserPoolId, email);
-      const sub =
-        createdUser.UserAttributes?.find((a) => a.Name === "sub")?.Value ||
-        email;
-
-      // 3) Write INVITED profile
-      const store = new ProfileStore(env.AWS_REGION, tenant.profileTableName);
-      const nowIso = new Date().toISOString();
-
-      await store.create({
-        pk: `TENANT#${tenant.tenantId}`,
-        sk: `USER#${sub}`,
-        tenantId: tenant.tenantId,
-        userId: sub,
-        email,
-        status: "INVITED",
-        roles: body.roles.length ? body.roles : ["user"],
-        displayName: body.displayName,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-        version: 1,
-      });
-
-      // 4) Create invite record (one-time + TTL 48 hours)
-      const inviteId = randomUUID();
-      const expiresAt = nowEpochSeconds() + ttlHours * 60 * 60;
-
-      const inviteStore = new InviteStore(env.AWS_REGION, inviteTable);
-      await inviteStore.createInvite({
-        tenantId: tenant.tenantId,
-        inviteId,
-        userId: sub,
-        email,
-        createdBy: ((req as any).user?.email ||
-          (req as any).user?.sub ||
-          "admin") as string,
-        expiresAt,
-      });
-
-      // 5) Generate JWT token with correct payload structure
-      const token = signInviteToken(
-        inviteSecret,
-        {
-          inviteId,
-          tenantId: tenant.tenantId,
-          userId: sub,
-          email,
-          expiresAt,
-        },
-        ttlHours * 60 * 60,
-      );
-
-      // 6) Send SES invite email
-      // B-flow: link lands on API and the API renders the password set page.
-      // const proto = (req.headers["x-forwarded-proto"] as string) || "https";
-      // const host =
-      //   (req.headers["x-forwarded-host"] as string) ||
-      //   (req.headers.host as string);
-      // const apiBaseUrl = `${proto}://${host}`;
-      // const inviteUrl = `${apiBaseUrl.replace(/\/$/, "")}/v1/auth/invite/accept?token=${encodeURIComponent(token)}`;
-      
-      // uiBaseUrl is already validated above (returns 500 if missing)
-      const inviteUrl = `${uiBaseUrl.replace(/\/$/, "")}/invite?token=${encodeURIComponent(token)}`;
-
-      const emailSvc = new EmailService(env.AWS_REGION, sesFromEmail);
-      await emailSvc.sendInvite(email, inviteUrl);
-
-      return reply.status(201).send({
-        ok: true,
-        userId: sub,
-        email,
-        inviteId,
-        expiresAt,
-        // You can also return inviteUrl for testing, but avoid exposing in prod:
-        // inviteUrl
-      });
+      const body = Invite.parse(req.body);
+      validateRoles(req, body.roles);
+      if (!req.tenant.uiBaseUrl) throw req.server.httpErrors.serviceUnavailable("Onboarding is not configured");
+      await idp.adminCreateUserSuppressed({ UserPoolId: req.tenant.cognitoUserPoolId, Username: body.email, UserAttributes: [{ Name: "email", Value: body.email }, { Name: "custom:tenantId", Value: req.tenant.tenantId }], MessageAction: "SUPPRESS" });
+      const identity = await idp.getUser(req.tenant.cognitoUserPoolId, body.email);
+      const userId = identity.UserAttributes?.find(a => a.Name === "sub")?.Value;
+      if (!userId) throw req.server.httpErrors.badGateway("Identity service returned an incomplete account");
+      const now = new Date().toISOString();
+      const profile: UserProfile = { pk: "TENANT#" + req.tenant.tenantId, sk: "USER#" + userId, tenantId: req.tenant.tenantId, userId, email: body.email, displayName: body.displayName, roles: body.roles, status: "INVITED", createdAt: now, updatedAt: now, version: 1, inviteId: randomUUID(), inviteExpiresAt: Math.floor(Date.now() / 1000) + 48 * 3600 };
+      await storeFor(req).create(profile, actor(req), req.roleCatalog!.version); await sendInvite(req, profile);
+      return reply.code(201).send({ ok: true, user: publicProfile(profile) });
     },
-
+    async resend(req: FastifyRequest, reply: FastifyReply) {
+      const body = Version.parse(req.body); const profile = await get(req);
+      if (profile.status !== "INVITED") throw req.server.httpErrors.conflict("Only pending invitations can be resent");
+      const updated = await storeFor(req).update(req.tenant.tenantId, profile.userId, { inviteId: randomUUID(), inviteExpiresAt: Math.floor(Date.now() / 1000) + 48 * 3600 }, body.version, actor(req), "INVITATION_RESENT");
+      await sendInvite(req, updated); return reply.send({ ok: true, user: publicProfile(updated) });
+    },
     async update(req: FastifyRequest, reply: FastifyReply) {
-      const tenant = (req as any).tenant;
-      const userId = (req.params as any).userId;
-      const patch = UpdateUserSchema.parse(req.body);
-
-      const store = new ProfileStore(env.AWS_REGION, tenant.profileTableName);
-      const updated = await store.update(tenant.tenantId, userId, patch);
-
-      // Mirror status to Cognito enable/disable (by email)
-      if (patch.status === "DISABLED")
-        await idp.disableUser(tenant.cognitoUserPoolId, updated.email);
-      if (patch.status === "ACTIVE")
-        await idp.enableUser(tenant.cognitoUserPoolId, updated.email);
-
-      return reply.send(updated);
+      const body = Patch.parse(req.body);
+      if (body.displayName !== undefined) requirePermission(req, "users.update");
+      if (body.status !== undefined) requirePermission(req, "users.disable");
+      if (body.roles !== undefined) validateRoles(req, body.roles);
+      const profile = await get(req);
+      if (profile.status === "DELETED") throw req.server.httpErrors.conflict("Deleted accounts cannot be edited");
+      if (body.status && profile.status === "INVITED") throw req.server.httpErrors.conflict("Accept or revoke the invitation first");
+      if (profile.version !== body.version) throw req.server.httpErrors.conflict("This user changed. Refresh before editing.");
+      const { version, ...patch } = body;
+      // Fail closed if either service is unavailable: enabling Cognito alone never grants API access.
+      if (patch.status === "ACTIVE") await idp.enableUser(req.tenant.cognitoUserPoolId, profile.email);
+      const updated = await storeFor(req).update(req.tenant.tenantId, profile.userId, patch as ProfilePatch, version, actor(req), "USER_UPDATED", patch.roles ? req.roleCatalog!.version : undefined);
+      if (patch.status === "DISABLED") await idp.disableUser(req.tenant.cognitoUserPoolId, profile.email);
+      return reply.send(publicProfile(updated));
     },
-
     async remove(req: FastifyRequest, reply: FastifyReply) {
-      const tenant = (req as any).tenant;
-      const userId = (req.params as any).userId;
-
-      const store = new ProfileStore(env.AWS_REGION, tenant.profileTableName);
-      const profile = await store.get(tenant.tenantId, userId);
-      if (!profile)
-        throw (req.server as any).httpErrors.notFound("User not found");
-
-      await idp.disableUser(tenant.cognitoUserPoolId, profile.email);
-      await store.update(tenant.tenantId, userId, { status: "DELETED" });
-
+      const body = Version.parse(req.body); const profile = await get(req);
+      const updated = await storeFor(req).update(req.tenant.tenantId, profile.userId, { status: "DELETED" }, body.version, actor(req), profile.status === "INVITED" ? "INVITATION_REVOKED" : "USER_DELETED");
+      await idp.disableUser(req.tenant.cognitoUserPoolId, profile.email);
+      return reply.send({ ok: true, user: publicProfile(updated) });
+    },
+    async resetPassword(req: FastifyRequest, reply: FastifyReply) {
+      const body = Version.parse(req.body); const profile = await get(req);
+      if (profile.status !== "ACTIVE" || profile.version !== body.version) throw req.server.httpErrors.conflict("Refresh and select an active user");
+      await idp.resetPassword(req.tenant.cognitoUserPoolId, profile.email);
+      await storeFor(req).update(req.tenant.tenantId, profile.userId, {}, profile.version, actor(req), "PASSWORD_RESET_REQUESTED");
       return reply.send({ ok: true });
     },
-
-    async enable(req: FastifyRequest, reply: FastifyReply) {
-      const tenant = (req as any).tenant;
-      const userId = (req.params as any).userId;
-
-      const store = new ProfileStore(env.AWS_REGION, tenant.profileTableName);
-      const profile = await store.get(tenant.tenantId, userId);
-      if (!profile)
-        throw (req.server as any).httpErrors.notFound("User not found");
-
-      await idp.enableUser(tenant.cognitoUserPoolId, profile.email);
-      const updated = await store.update(tenant.tenantId, userId, {
-        status: "ACTIVE",
-      });
-      return reply.send(updated);
-    },
-
-    async disable(req: FastifyRequest, reply: FastifyReply) {
-      const tenant = (req as any).tenant;
-      const userId = (req.params as any).userId;
-
-      const store = new ProfileStore(env.AWS_REGION, tenant.profileTableName);
-      const profile = await store.get(tenant.tenantId, userId);
-      if (!profile)
-        throw (req.server as any).httpErrors.notFound("User not found");
-
-      await idp.disableUser(tenant.cognitoUserPoolId, profile.email);
-      const updated = await store.update(tenant.tenantId, userId, {
-        status: "DISABLED",
-      });
-      return reply.send(updated);
-    },
-
-    async resetPassword(req: FastifyRequest, reply: FastifyReply) {
-      const tenant = (req as any).tenant;
-      const userId = (req.params as any).userId;
-
-      const store = new ProfileStore(env.AWS_REGION, tenant.profileTableName);
-      const profile = await store.get(tenant.tenantId, userId);
-      if (!profile)
-        throw (req.server as any).httpErrors.notFound("User not found");
-
-      const out = await idp.resetPassword(
-        tenant.cognitoUserPoolId,
-        profile.email,
-      );
-      return reply.send({ ok: true, out });
-    },
+    async enable(req: FastifyRequest, reply: FastifyReply) { req.body = { ...Version.parse(req.body), status: "ACTIVE" }; return handlers.update(req, reply); },
+    async disable(req: FastifyRequest, reply: FastifyReply) { req.body = { ...Version.parse(req.body), status: "DISABLED" }; return handlers.update(req, reply); }
   };
+  return { ...handlers, create: handlers.invite };
 }

@@ -1,58 +1,53 @@
-import { FastifyPluginAsync } from "fastify";
-import { JwtValidator } from "../services/jwtValidator";
+import { FastifyInstance, FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import fp from "fastify-plugin";
+import { JwtValidator } from "../services/jwtValidator";
+import { ProfileStore, UserProfile } from "../services/profileStore";
+import { CognitoIdp } from "../services/cognitoIdp";
+import { accessToken } from "../services/session";
+import { Env } from "../config/env";
+import { RoleStore, Permission, RoleCatalog, effectivePermissions } from "../services/roleStore";
 
 declare module "fastify" {
   interface FastifyInstance {
-    requireAuth: (req: any, reply: any) => Promise<void>;
-    requireRole: (role: string) => (req: any, reply: any) => Promise<void>;
+    requireAuth: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requireRole: (role: string) => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requirePermission: (permission: Permission) => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
-  interface FastifyRequest {
-    user?: {
-      sub: string;
-      claims: any;
-      roles: string[];
-    };
-  }
+  interface FastifyRequest { user?: UserProfile; permissions?: Permission[]; roleCatalog?: RoleCatalog; }
 }
-
-export const authPlugin: FastifyPluginAsync = fp(async (app) => {
+export const authPlugin: FastifyPluginAsync<{ env: Env }> = fp(async (app: FastifyInstance, { env }: { env: Env }) => {
   const validator = new JwtValidator();
-
-  app.decorate("requireAuth", async (req: any, _reply: any) => {
-    const auth = req.headers.authorization || "";
-    const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-    if (!token) throw app.httpErrors.unauthorized("Missing Bearer token");
-
-    const { cognitoIssuer, cognitoAppClientId, tenantId } = req.tenant;
-    const claims = await validator.verify(token, cognitoIssuer, cognitoAppClientId);
-
-    if (!claims.tenantId) throw app.httpErrors.unauthorized("Missing tenantId claim");
-    if (claims.tenantId !== tenantId) throw app.httpErrors.forbidden("Tenant mismatch");
-
-    const rolesRaw = claims.roles;
-    let roles: string[] = [];
-    if (Array.isArray(rolesRaw)) {
-      roles = rolesRaw;
-    } else if (typeof rolesRaw === "string") {
-      try {
-        const parsed = JSON.parse(rolesRaw);
-        roles = Array.isArray(parsed) ? parsed : [];
-      } catch {
-        roles = [];
-      }
+  const idp = new CognitoIdp(env.AWS_REGION);
+  app.decorate("requireAuth", async (req: FastifyRequest) => {
+    const token = accessToken(req);
+    if (!token) throw app.httpErrors.unauthorized("Sign in required");
+    let sub: string;
+    try {
+      const claims = await validator.verify(token, req.tenant.cognitoIssuer, req.tenant.cognitoAppClientId);
+      // Cognito checks revocation, unlike signature verification alone.
+      const identity = await idp.getCurrentUser(token);
+      if (identity.UserAttributes?.find(a => a.Name === "sub")?.Value !== claims.sub) throw new Error("Identity mismatch");
+      sub = claims.sub;
+    } catch (error) {
+      const name = error instanceof Error ? error.name : "";
+      if (["TooManyRequestsException", "InternalErrorException", "TimeoutError"].includes(name)) throw app.httpErrors.serviceUnavailable("Authentication service unavailable");
+      throw app.httpErrors.unauthorized("Session expired or invalid");
     }
-    if (!roles.length) roles = ["user"];
-
-    req.user = { sub: claims.sub, claims, roles };
+    // Current database roles/status are authoritative; stale token roles cannot retain privileges.
+    const profile = await new ProfileStore(env.AWS_REGION, req.tenant.profileTableName).get(req.tenant.tenantId, sub);
+    if (!profile || profile.tenantId !== req.tenant.tenantId || profile.status !== "ACTIVE") {
+      throw app.httpErrors.forbidden("Account is not active in this organization");
+    }
+    req.user = profile;
+    req.roleCatalog = await new RoleStore(env.AWS_REGION, req.tenant.profileTableName).get(req.tenant.tenantId);
+    req.permissions = effectivePermissions(profile.roles, req.roleCatalog);
   });
-
-  app.decorate("requireRole", (role: string) => async (req: any, reply: any) => {
-    // Ensure user is populated even if route forgot to call requireAuth
-    if (!req.user) {
-      await app.requireAuth(req, reply);
-    }
-    const roles: string[] = req.user?.roles || [];
-    if (!roles.includes(role)) throw app.httpErrors.forbidden("Insufficient role");
+  app.decorate("requirePermission", (permission: Permission) => async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!req.user) await app.requireAuth(req, reply);
+    if (!req.permissions?.includes(permission)) throw app.httpErrors.forbidden("You do not have permission to perform this action");
+  });
+  app.decorate("requireRole", (role: string) => async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!req.user) await app.requireAuth(req, reply);
+    if (!req.user?.roles.includes(role)) throw app.httpErrors.forbidden("You do not have permission to perform this action");
   });
 });

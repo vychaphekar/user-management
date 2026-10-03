@@ -18,7 +18,8 @@ import {
   VerifySoftwareTokenCommand,
   SetUserMFAPreferenceCommand,
   InitiateAuthCommand,
-  AttributeType,
+  GetUserCommand,
+  RevokeTokenCommand,
   RespondToAuthChallengeCommand
 } from "@aws-sdk/client-cognito-identity-provider";
 import type { AdminCreateUserCommandInput } from "@aws-sdk/client-cognito-identity-provider";
@@ -38,6 +39,24 @@ export class CognitoIdp {
         MessageAction: "SUPPRESS"
       })
     );
+  }
+
+  getCurrentUser(accessToken: string) {
+    return this.client.send(new GetUserCommand({ AccessToken: accessToken }));
+  }
+
+  revokeToken(clientId: string, token: string) {
+    return this.client.send(new RevokeTokenCommand({ ClientId: clientId, Token: token }));
+  }
+
+  associateForChallenge(session: string) { return this.client.send(new AssociateSoftwareTokenCommand({ Session: session })); }
+  verifyForChallenge(session: string, code: string) { return this.client.send(new VerifySoftwareTokenCommand({ Session: session, UserCode: code })); }
+  finishMfaSetup(clientId: string, session: string, username: string) {
+    return this.client.send(new RespondToAuthChallengeCommand({ ClientId: clientId, ChallengeName: "MFA_SETUP", Session: session, ChallengeResponses: { USERNAME: username } }));
+  }
+  respondToChallenge(clientId: string, challenge: "SOFTWARE_TOKEN_MFA" | "SMS_MFA" | "NEW_PASSWORD_REQUIRED", session: string, username: string, answer: string) {
+    const field = challenge === "NEW_PASSWORD_REQUIRED" ? "NEW_PASSWORD" : challenge === "SMS_MFA" ? "SMS_MFA_CODE" : "SOFTWARE_TOKEN_MFA_CODE";
+    return this.client.send(new RespondToAuthChallengeCommand({ ClientId: clientId, ChallengeName: challenge, Session: session, ChallengeResponses: { USERNAME: username, [field]: answer } }));
   }
 
   listUsers(userPoolId: string, limit = 20, paginationToken?: string) {

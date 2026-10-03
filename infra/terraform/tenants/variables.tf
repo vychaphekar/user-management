@@ -4,6 +4,10 @@ variable "aws_region" {
 }
 variable "tenant_slug" { type = string }
 variable "tenant_id" { type = string }
+variable "ui_base_url" {
+  description = "Exact HTTPS application origin for this tenant, without a trailing slash."
+  type        = string
+}
 variable "isolation_mode" {
   type    = string
   default = "LOGICAL"

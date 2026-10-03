@@ -1,312 +1,150 @@
 import { FastifyReply, FastifyRequest } from "fastify";
+import { z } from "zod";
+import jwt from "jsonwebtoken";
+import type { InitiateAuthCommandOutput } from "@aws-sdk/client-cognito-identity-provider";
 import { Env } from "../config/env";
 import { CognitoIdp } from "../services/cognitoIdp";
 import { ProfileStore } from "../services/profileStore";
+import { RoleStore, effectivePermissions } from "../services/roleStore";
 import { InviteStore } from "../services/inviteStore";
 import { verifyInviteToken } from "../services/inviteToken";
-import {
-  RegisterSchema,
-  ConfirmSchema,
-  EmailOnlySchema,
-  ConfirmForgotSchema,
-  LoginSchema,
-  RefreshSchema,
-  AcceptInviteSchema
-} from "../models/schemas";
+import { setSession, clearSession, REFRESH_COOKIE } from "../services/session";
+import { EmailOnlySchema, ConfirmForgotSchema, LoginSchema, AcceptInviteSchema, ChallengeSchema, PasswordSchema } from "../models/schemas";
 
-function htmlEscape(s: string) {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
+const ChallengeClaims = z.object({ tenantId: z.string(), username: z.string(), challenge: z.enum(["SOFTWARE_TOKEN_MFA", "SMS_MFA", "NEW_PASSWORD_REQUIRED", "MFA_SETUP"]), session: z.string(), setupStarted: z.boolean().optional() });
 export function authHandlers(env: Env) {
   const idp = new CognitoIdp(env.AWS_REGION);
-
+  async function activeAccount(req: FastifyRequest, username: string) {
+    try {
+      const identity = await idp.getUser(req.tenant.cognitoUserPoolId, username);
+      const attribute = (name: string) => identity.UserAttributes?.find(value => value.Name === name)?.Value;
+      const sub = attribute("sub");
+      const identityTenant = attribute("custom:tenantId");
+      if (!sub || (identityTenant && identityTenant !== req.tenant.tenantId)) return null;
+      const profile = await new ProfileStore(env.AWS_REGION, req.tenant.profileTableName).get(req.tenant.tenantId, sub);
+      return profile?.tenantId === req.tenant.tenantId && profile.status === "ACTIVE" &&
+        profile.email.toLowerCase() === attribute("email")?.toLowerCase() ? profile : null;
+    } catch (error) {
+      if (error instanceof Error && error.name === "UserNotFoundException") return null;
+      throw error;
+    }
+  }
+  async function finish(req: FastifyRequest, reply: FastifyReply, out: Pick<InitiateAuthCommandOutput, "AuthenticationResult" | "ChallengeName" | "ChallengeParameters" | "Session">, username: string) {
+    if (out.ChallengeName) {
+      const challenge = ChallengeClaims.shape.challenge.safeParse(out.ChallengeName);
+      if (!challenge.success || !out.Session) throw req.server.httpErrors.conflict("This sign-in method requires administrator assistance");
+      const challengeToken = jwt.sign({ tenantId: req.tenant.tenantId, username: out.ChallengeParameters?.USER_ID_FOR_SRP || username, challenge: challenge.data, session: out.Session }, env.INVITE_JWT_SECRET, { algorithm: "HS256", audience: "blueberry-challenge", expiresIn: 180 });
+      return reply.send({ status: "CHALLENGE", challenge: challenge.data, challengeToken });
+    }
+    const result = out.AuthenticationResult;
+    if (!result?.AccessToken) throw req.server.httpErrors.unauthorized("Unable to complete sign-in");
+    const identity = await idp.getCurrentUser(result.AccessToken);
+    const sub = identity.UserAttributes?.find(a => a.Name === "sub")?.Value;
+    const profile = sub ? await new ProfileStore(env.AWS_REGION, req.tenant.profileTableName).get(req.tenant.tenantId, sub) : null;
+    if (!profile || profile.tenantId !== req.tenant.tenantId || profile.status !== "ACTIVE") throw req.server.httpErrors.forbidden("Account is not active in this organization");
+    setSession(reply, result);
+    const catalog = await new RoleStore(env.AWS_REGION, req.tenant.profileTableName).get(req.tenant.tenantId);
+    return reply.send({ status: "AUTHENTICATED", user: { ...publicProfile(profile), permissions: effectivePermissions(profile.roles, catalog) } });
+  }
   return {
-    /**
-     * Invite-only SaaS should not expose public registration.
-     * Keep these handlers only if you need them for internal testing.
-     */
-    async register(req: FastifyRequest, reply: FastifyReply) {
-      return reply.code(404).send({ message: "Self-registration is disabled. Ask an admin for an invite." });
+    async me(req: FastifyRequest, reply: FastifyReply) {
+      if (!req.user) throw req.server.httpErrors.unauthorized();
+      return reply.send({ user: { ...publicProfile(req.user), permissions: req.permissions || [] } });
     },
-
-    async confirm(req: FastifyRequest, reply: FastifyReply) {
-      return reply.code(404).send({ message: "Self-registration is disabled. Ask an admin for an invite." });
-    },
-
     async login(req: FastifyRequest, reply: FastifyReply) {
       const body = LoginSchema.parse(req.body);
-      const tenant = (req as any).tenant;
-
-      const email = body.email.toLowerCase();
-      const out = await idp.loginUserPassword(tenant.cognitoAppClientId, email, body.password);
-
-      return reply.send({
-        accessToken: out.AuthenticationResult?.AccessToken,
-        idToken: out.AuthenticationResult?.IdToken,
-        refreshToken: out.AuthenticationResult?.RefreshToken,
-        expiresIn: out.AuthenticationResult?.ExpiresIn,
-        tokenType: out.AuthenticationResult?.TokenType
-      });
+      const email = body.email.trim().toLowerCase();
+      if (!await activeAccount(req, email)) throw req.server.httpErrors.unauthorized("Invalid credentials or expired session");
+      return finish(req, reply, await idp.loginUserPassword(req.tenant.cognitoAppClientId, email, body.password), email);
     },
-
+    async setupChallenge(req: FastifyRequest, reply: FastifyReply) {
+      const body = z.object({ challengeToken: z.string().min(20).max(10000) }).strict().parse(req.body);
+      const claims = ChallengeClaims.parse(jwt.verify(body.challengeToken, env.INVITE_JWT_SECRET, { algorithms: ["HS256"], audience: "blueberry-challenge" }));
+      if (claims.tenantId !== req.tenant.tenantId || claims.challenge !== "MFA_SETUP" || claims.setupStarted) throw req.server.httpErrors.forbidden("Invalid setup challenge");
+      if (!await activeAccount(req, claims.username)) throw req.server.httpErrors.unauthorized("Invalid credentials or expired session");
+      const out = await idp.associateForChallenge(claims.session);
+      if (!out.Session || !out.SecretCode) throw req.server.httpErrors.badGateway("Unable to start authenticator setup");
+      const challengeToken = jwt.sign({ ...claims, session: out.Session, setupStarted: true }, env.INVITE_JWT_SECRET, { algorithm: "HS256", audience: "blueberry-challenge", expiresIn: 180 });
+      return reply.send({ secretCode: out.SecretCode, challengeToken });
+    },
+    async challenge(req: FastifyRequest, reply: FastifyReply) {
+      const body = ChallengeSchema.parse(req.body);
+      const claims = ChallengeClaims.parse(jwt.verify(body.challengeToken, env.INVITE_JWT_SECRET, { algorithms: ["HS256"], audience: "blueberry-challenge" }));
+      if (claims.tenantId !== req.tenant.tenantId) throw req.server.httpErrors.forbidden("Challenge belongs to another organization");
+      if (!await activeAccount(req, claims.username)) throw req.server.httpErrors.unauthorized("Invalid credentials or expired session");
+      if (claims.challenge === "NEW_PASSWORD_REQUIRED") PasswordSchema.parse(body.answer);
+      else z.string().regex(/^\d{6}$/).parse(body.answer);
+      if (claims.challenge === "MFA_SETUP") {
+        if (!claims.setupStarted) throw req.server.httpErrors.badRequest("Start authenticator setup first");
+        const verified = await idp.verifyForChallenge(claims.session, body.answer);
+        if (verified.Status !== "SUCCESS" || !verified.Session) throw req.server.httpErrors.badRequest("Verification failed");
+        return finish(req, reply, await idp.finishMfaSetup(req.tenant.cognitoAppClientId, verified.Session, claims.username), claims.username);
+      }
+      const out = await idp.respondToChallenge(req.tenant.cognitoAppClientId, claims.challenge, claims.session, claims.username, body.answer);
+      return finish(req, reply, out, claims.username);
+    },
     async refresh(req: FastifyRequest, reply: FastifyReply) {
-      const body = RefreshSchema.parse(req.body);
-      const tenant = (req as any).tenant;
-
-      const out = await idp.refreshSession(tenant.cognitoAppClientId, body.refreshToken);
-
-      return reply.send({
-        accessToken: out.AuthenticationResult?.AccessToken,
-        idToken: out.AuthenticationResult?.IdToken,
-        expiresIn: out.AuthenticationResult?.ExpiresIn,
-        tokenType: out.AuthenticationResult?.TokenType
-      });
+      const token = req.cookies[REFRESH_COOKIE];
+      if (!token) throw req.server.httpErrors.unauthorized("Session expired. Sign in again.");
+      try {
+        return await finish(req, reply, await idp.refreshSession(req.tenant.cognitoAppClientId, token), "");
+      } catch (error) {
+        if (error instanceof Error && ["NotAuthorizedException", "ForbiddenError", "UnauthorizedError"].includes(error.name)) clearSession(reply);
+        throw error;
+      }
     },
-
-    /**
-     * B-flow: Invite link lands on API.
-     * - GET  /v1/auth/invite/accept?token=...   => render minimal password set page
-     * - POST /v1/auth/invite/accept            => set password + mark invite used + redirect to UI
-     */
+    async logout(req: FastifyRequest, reply: FastifyReply) {
+      const token = req.cookies[REFRESH_COOKIE];
+      if (token) {
+        try { await idp.revokeToken(req.tenant.cognitoAppClientId, token); }
+        catch (error) { if (!(error instanceof Error) || error.name !== "NotAuthorizedException") throw error; }
+      }
+      clearSession(reply);
+      return reply.send({ ok: true });
+    },
     async acceptInvite(req: FastifyRequest, reply: FastifyReply) {
-      const tenant = (req as any).tenant;
-
-      const inviteTable = (env as any).INVITE_TABLE_NAME || process.env.INVITE_TABLE_NAME;
-      const inviteSecret = (env as any).INVITE_JWT_SECRET || process.env.INVITE_JWT_SECRET;
-
-      if (!inviteTable) return reply.code(500).send({ message: "INVITE_TABLE_NAME not configured" });
-      if (!inviteSecret) return reply.code(500).send({ message: "INVITE_JWT_SECRET not configured" });
-
-      // Needed to know where to redirect after success
-      const uiBaseUrl = tenant.uiBaseUrl;
-      if (!uiBaseUrl) {
-        return reply.code(500).send({ message: "tenant.uiBaseUrl is missing. Add uiBaseUrl to the tenant registry item." });
-      }
-
-      // GET: render form (JS posts JSON so you don't need @fastify/formbody)
       if (req.method === "GET") {
-        const token = String((req.query as any)?.token || "");
-        if (!token) return reply.code(400).send({ message: "Missing token" });
-
-        const safeToken = htmlEscape(token);
-
-        const html = `<!doctype html>
-          <html lang="en">
-          <head>
-            <meta charset="utf-8" />
-            <meta name="viewport" content="width=device-width,initial-scale=1" />
-            <title>Set your password</title>
-            <style>
-              body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 0; padding: 32px; background: #0b1220; color: #e7e9ee; }
-              .card { max-width: 520px; margin: 0 auto; background: #121a2b; padding: 24px; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
-              h1 { margin: 0 0 8px; font-size: 20px; }
-              p { margin: 0 0 18px; color: #b7bed0; font-size: 14px; }
-              label { display:block; margin: 14px 0 6px; font-size: 13px; color: #cfd6e6; }
-              input { width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #2a3551; background: #0b1220; color: #e7e9ee; }
-              button { margin-top: 18px; width: 100%; padding: 12px; border-radius: 10px; border: 0; background: #4f7cff; color: white; font-weight: 600; cursor: pointer; }
-              .small { font-size: 12px; margin-top: 12px; color: #9aa4bd; }
-            </style>
-          </head>
-          <body>
-            <div class="card">
-              <h1>Set your password</h1>
-              <p>Your invite link expires in 48 hours and can be used only once.</p>
-
-              <form>
-                <input type="hidden" name="token" value="${safeToken}" />
-                <label>New password</label>
-                <input type="password" name="newPassword" minlength="8" required />
-                <label>Confirm password</label>
-                <input type="password" name="confirmPassword" minlength="8" required />
-                <button type="submit">Set password</button>
-              </form>
-
-              <div class="small">If this link has expired, ask your admin to send a new invite.</div>
-            </div>
-
-            <script>
-              const form = document.querySelector("form");
-              form.addEventListener("submit", async (e) => {
-                e.preventDefault();
-
-                const token = form.querySelector('input[name="token"]').value;
-                const p1 = form.querySelector('input[name="newPassword"]').value;
-                const p2 = form.querySelector('input[name="confirmPassword"]').value;
-
-                if (p1 !== p2) {
-                  alert("Passwords do not match.");
-                  return;
-                }
-
-                try {
-                  const res = await fetch("", {
-                    method: "POST",
-                    headers: { "content-type": "application/json" },
-                    body: JSON.stringify({ token, newPassword: p1 }),
-                    redirect: "manual"
-                  });
-
-                  // Handle redirect response (302, 303, 307, 308)
-                  if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {
-                    window.location.href = res.headers.get("location");
-                    return;
-                  }
-
-                  if (!res.ok) {
-                    let errorMsg = "Failed to set password.";
-                    try {
-                      const data = await res.json();
-                      errorMsg = data.message || errorMsg;
-                    } catch (e) {
-                      errorMsg = "Server error: " + res.statusText;
-                    }
-                    alert(errorMsg);
-                    return;
-                  }
-
-                  // If we get here, assume success
-                  window.location.href = window.location.origin;
-                } catch (err) {
-                  alert("Network error. Please try again.");
-                }
-              });
-            </script>
-          </body>
-          </html>`;
-
-        reply.header("content-type", "text/html; charset=utf-8");
-        return reply.send(html);
+        const token = z.object({ token: z.string().min(20) }).parse(req.query).token;
+        if (!req.tenant.uiBaseUrl) throw req.server.httpErrors.serviceUnavailable("Onboarding is not configured");
+        return reply.redirect(new URL("/invite?token=" + encodeURIComponent(token), req.tenant.uiBaseUrl).toString(), 302);
       }
-
-      // POST: accept invite + set password
-      if (!req.body || typeof req.body !== "object") {
-        return reply.code(400).send({ message: "Invalid request body. Expected JSON with 'token' and 'newPassword' fields." });
-      }
-
-      const rawToken = (req.body as any)?.token;
-      const rawPassword = (req.body as any)?.newPassword;
-
-      if (!rawToken || !rawPassword) {
-        return reply.code(400).send({ message: "Missing required fields: token and newPassword" });
-      }
-
-      let body;
+      const body = AcceptInviteSchema.parse(req.body);
+      const claims = verifyInviteToken(env.INVITE_JWT_SECRET, body.token);
+      if (claims.tenantId !== req.tenant.tenantId) throw req.server.httpErrors.forbidden("Invitation belongs to another organization");
+      const store = new ProfileStore(env.AWS_REGION, req.tenant.profileTableName);
+      const profile = await store.get(req.tenant.tenantId, claims.userId);
+      if (!profile || profile.status !== "INVITED" || profile.email !== claims.email || profile.inviteId !== claims.inviteId) throw req.server.httpErrors.conflict("Invitation is no longer valid");
+      const invitations = new InviteStore(env.AWS_REGION, env.INVITE_TABLE_NAME);
+      await invitations.useInviteOnce({ tenantId: claims.tenantId, inviteId: claims.inviteId, nowEpoch: Math.floor(Date.now() / 1000) });
       try {
-        body = AcceptInviteSchema.parse({ token: rawToken, newPassword: rawPassword });
-      } catch (e: any) {
-        return reply.code(400).send({ message: `Validation error: ${e.message}` });
+        await idp.adminSetUserPasswordPermanent(req.tenant.cognitoUserPoolId, claims.email, body.newPassword);
+        await idp.updateUser(req.tenant.cognitoUserPoolId, claims.email, { email_verified: "true" });
+        await store.activateInvited(req.tenant.tenantId, claims.userId, claims.inviteId, profile.version);
+      } catch (error) {
+        // Preserve one-time semantics after an uncertain upstream result. Admin can issue a new invitation.
+        req.log.warn({ code: error instanceof Error ? error.name : "UpstreamError", requestId: req.id }, "invite_activation_incomplete");
+        throw req.server.httpErrors.serviceUnavailable("Account setup could not finish. Ask your administrator to resend the invitation.");
       }
-
-      const token = body.token;
-      const newPassword = body.newPassword;
-
-      // 1) Verify JWT (signature + exp)
-      let payload;
-      try {
-        payload = verifyInviteToken(inviteSecret, token) as {
-          tenantId: string;
-          inviteId: string;
-          userId: string;
-          email: string;
-          expiresAt: number;
-        };
-      } catch (e: any) {
-        req.log.error({ error: e.message }, "Token verification failed");
-        return reply.code(400).send({ message: "Invite link is invalid or expired." });
-      }
-
-      if (!payload?.tenantId || !payload?.inviteId || !payload?.email) {
-        return reply.code(400).send({ message: "Invalid invite token" });
-      }
-
-      if (payload.tenantId !== tenant.tenantId) {
-        return reply.code(403).send({ message: "Invite token does not match tenant" });
-      }
-
-      // 2) One-time use + not expired (atomic)
-      const inviteStore = new InviteStore(env.AWS_REGION, inviteTable);
-      const nowEpoch = Math.floor(Date.now() / 1000);
-
-      try {
-        await inviteStore.useInviteOnce({ tenantId: tenant.tenantId, inviteId: payload.inviteId, nowEpoch });
-      } catch (e: any) {
-        return reply.code(400).send({ message: "Invite link is invalid, expired, or already used." });
-      }
-
-      // 3) Set Cognito password permanently (no temp password needed)
-      try {
-        await idp.adminSetUserPasswordPermanent(
-          tenant.cognitoUserPoolId,
-          payload.email.toLowerCase(),
-          newPassword
-        );
-      } catch (e: any) {
-        req.log.error({ email: payload.email, error: e.message }, "Failed to set password");
-        return reply.code(500).send({ message: "Failed to set password. Please try again or contact support." });
-      }
-
-      // 4) Immediately log the user in (USER_PASSWORD_AUTH)
-      let loginOut;
-      try {
-        loginOut = await idp.loginUserPassword(
-          tenant.cognitoAppClientId,
-          payload.email.toLowerCase(),
-          newPassword
-        );
-      } catch (e: any) {
-        req.log.error({ email: payload.email, error: e.message }, "Failed to auto-login after password set");
-        // User can still log in manually from the login page
-        return reply.redirect(302, `${uiBaseUrl.replace(/\/$/, "")}/login?invite=accepted`);
-      }
-
-      const accessToken = loginOut.AuthenticationResult?.AccessToken;
-      const idToken = loginOut.AuthenticationResult?.IdToken;
-      const refreshToken = loginOut.AuthenticationResult?.RefreshToken;
-      const expiresIn = loginOut.AuthenticationResult?.ExpiresIn;
-      const tokenType = loginOut.AuthenticationResult?.TokenType || "Bearer";
-
-      if (!accessToken || !idToken) {
-        // If this happens, the user can still log in normally from UI
-        return reply.redirect(302, `${uiBaseUrl.replace(/\/$/, "")}/login?invite=accepted`);
-      }
-
-      // 5) Redirect to UI with tokens in URL fragment (safer than query params)
-      const callbackUrl = `${uiBaseUrl.replace(/\/$/, "")}/auth/callback`;
-
-      const fragment =
-        `access_token=${encodeURIComponent(accessToken)}` +
-        `&id_token=${encodeURIComponent(idToken)}` +
-        (refreshToken ? `&refresh_token=${encodeURIComponent(refreshToken)}` : "") +
-        (expiresIn ? `&expires_in=${encodeURIComponent(String(expiresIn))}` : "") +
-        `&token_type=${encodeURIComponent(tokenType)}`;
-
-      return reply.redirect(302, `${callbackUrl}#${fragment}`);
-
+      return reply.send({ ok: true });
     },
-
     async forgot(req: FastifyRequest, reply: FastifyReply) {
       const body = EmailOnlySchema.parse(req.body);
-      const tenant = (req as any).tenant;
-      const out = await idp.forgotPassword(tenant.cognitoAppClientId, body.email.toLowerCase());
-      return reply.send({ ok: true, out });
+      try {
+        if (await activeAccount(req, body.email.toLowerCase())) {
+          await idp.forgotPassword(req.tenant.cognitoAppClientId, body.email.toLowerCase());
+        }
+      }
+      catch (error) { if (!(error instanceof Error) || !["UserNotFoundException", "InvalidParameterException"].includes(error.name)) throw error; }
+      return reply.send({ ok: true });
     },
-
     async confirmForgot(req: FastifyRequest, reply: FastifyReply) {
       const body = ConfirmForgotSchema.parse(req.body);
-      const tenant = (req as any).tenant;
-      const out = await idp.confirmForgotPassword(
-        tenant.cognitoAppClientId,
-        body.email.toLowerCase(),
-        body.code,
-        body.newPassword
-      );
-      return reply.send({ ok: true, out });
+      if (!await activeAccount(req, body.email.toLowerCase())) throw req.server.httpErrors.badRequest("Unable to reset password. Request a new code from your organization's sign-in page.");
+      await idp.confirmForgotPassword(req.tenant.cognitoAppClientId, body.email.toLowerCase(), body.code, body.newPassword);
+      return reply.send({ ok: true });
     }
   };
+}
+export function publicProfile(profile: import("../services/profileStore").UserProfile) {
+  return { userId: profile.userId, email: profile.email, displayName: profile.displayName || "", roles: profile.roles, status: profile.status, tenantId: profile.tenantId, createdAt: profile.createdAt, updatedAt: profile.updatedAt, version: profile.version };
 }
