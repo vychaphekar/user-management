@@ -6,8 +6,11 @@ import { z } from "zod";
 export const PERMISSIONS = [
   "users.read", "users.invite", "users.update", "users.assign_roles",
   "users.disable", "users.delete", "users.reset_password", "roles.manage",
+  // Enforced by the CaseManagement service, which reads them from GET /v1/auth/me.
+  "incidents.create", "incidents.read", "incidents.update",
 ] as const;
 export type Permission = typeof PERMISSIONS[number];
+export const INCIDENT_PERMISSIONS: readonly Permission[] = ["incidents.create", "incidents.read", "incidents.update"];
 export const RoleSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/),
   name: z.string().trim().min(1).max(80),
@@ -18,7 +21,8 @@ export const RoleSchema = z.object({
 export type Role = z.infer<typeof RoleSchema>;
 export const BUILTIN_ROLES: readonly Role[] = [
   { id: "admin", name: "Administrator", permissions: [...PERMISSIONS], enabled: true },
-  { id: "field_worker", name: "Field worker", permissions: [], enabled: true },
+  // Field workers record, open and edit incidents by default; custom roles get them only when switched on.
+  { id: "field_worker", name: "Field worker", permissions: [...INCIDENT_PERMISSIONS], enabled: true },
 ];
 export const CatalogSchema = z.object({
   version: z.number().int().nonnegative(),

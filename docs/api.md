@@ -35,3 +35,18 @@ Requires Authorization: `Bearer <access_token>` and token includes `roles` with 
 - POST `/v1/users/{userId}/enable`
 - POST `/v1/users/{userId}/disable`
 - POST `/v1/users/{userId}/reset-password`
+
+## Roles & permissions
+- GET `/v1/roles` lists the built-in and custom roles and every permission code.
+- POST `/v1/roles`, PUT `/v1/roles/{roleId}` (needs `roles.manage`) save a custom role. You can only switch on permissions you hold.
+- GET `/v1/auth/me` returns the caller's effective `permissions`; the CaseManagement service enforces the incident ones from it.
+
+| Permission | Meaning | Admin | Field worker |
+| --- | --- | --- | --- |
+| `users.read`, `users.invite`, `users.update`, `users.assign_roles`, `users.disable`, `users.delete`, `users.reset_password`, `roles.manage` | User management | Yes | No |
+| `incidents.create` | Create incidents (and the drafts and people they need) | Yes | Yes |
+| `incidents.read` | View incidents | Yes | Yes |
+| `incidents.update` | Edit incidents (admins any; others only incidents they created) | Yes | Yes |
+
+Custom roles get an incident permission only when an admin switches it on for that role.
+Because field workers hold the incident permissions, assigning the Field worker role needs them too.

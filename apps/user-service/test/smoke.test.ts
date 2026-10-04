@@ -69,9 +69,15 @@ test('returns the current database profile without tokens', async () => {
   const res = await app.inject({ method: 'GET', url: '/v1/auth/me', headers: { ...headers, cookie: '__Host-blueberry-access=test-token' } });
   expect(res.statusCode).toBe(200);
   expect(res.json().user.roles).toEqual(['admin']);
+  expect(res.json().user.permissions).toEqual(expect.arrayContaining(['incidents.create', 'incidents.read', 'incidents.update']));
   expect(res.json().user.pk).toBeUndefined();
   expect(res.body).not.toContain('test-token');
   expect(res.headers['cache-control']).toBe('no-store');
+});
+test('returns the incident permissions a field worker holds by default', async () => {
+  jest.mocked(ProfileStore.prototype.get).mockResolvedValue({ ...profile, roles: ['field_worker'] });
+  const res = await app.inject({ method: 'GET', url: '/v1/auth/me', headers: { ...headers, authorization: 'Bearer token' } });
+  expect(res.json().user.permissions).toEqual(['incidents.create', 'incidents.read', 'incidents.update']);
 });
 test.each(['DISABLED', 'INVITED', 'DELETED'] as const)('denies an account that is now %s', async status => {
   jest.mocked(ProfileStore.prototype.get).mockResolvedValue({ ...profile, status });

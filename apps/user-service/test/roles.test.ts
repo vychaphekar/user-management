@@ -5,7 +5,7 @@ import { TenantRegistry } from "../src/services/tenantRegistry";
 import { ProfileStore, UserProfile } from "../src/services/profileStore";
 import { CognitoIdp } from "../src/services/cognitoIdp";
 import { JwtValidator } from "../src/services/jwtValidator";
-import { RoleStore, PERMISSIONS, RoleCatalog, effectivePermissions } from "../src/services/roleStore";
+import { RoleStore, PERMISSIONS, INCIDENT_PERMISSIONS, RoleCatalog, effectivePermissions } from "../src/services/roleStore";
 
 const env: Env = { PORT: "3000", AWS_REGION: "us-east-1", TENANT_TABLE_NAME: "tenants", PROFILE_TABLE_NAME: "profiles", DEFAULT_USER_POOL_ID: "pool", DEFAULT_USER_POOL_ISSUER: "https://issuer.example", DEFAULT_APP_CLIENT_ID: "client", LOG_LEVEL: "silent", INVITE_TABLE_NAME: "invites", INVITE_JWT_SECRET: "test-only-secret-not-for-deployment", SES_FROM_EMAIL: "test@example.com" };
 const headers = { host: "alpha.api.evanyaconsulting.com", origin: "https://app.example.com", authorization: "Bearer token" };
@@ -33,8 +33,30 @@ test("custom role grants access without the admin role", async () => {
 });
 test("disabled and unknown roles grant no permissions", () => {
   expect(effectivePermissions(["limited", "unknown"], { ...catalog, roles: catalog.roles.map(role => ({ ...role, enabled: false })) })).toEqual([]);
-  expect(effectivePermissions(["field_worker"], catalog)).toEqual([]);
   expect(effectivePermissions(["admin"], catalog)).toEqual([...PERMISSIONS]);
+});
+test("admins and field workers hold every incident permission by default", () => {
+  expect(INCIDENT_PERMISSIONS).toEqual(["incidents.create", "incidents.read", "incidents.update"]);
+  expect(effectivePermissions(["admin"], catalog)).toEqual(expect.arrayContaining([...INCIDENT_PERMISSIONS]));
+  expect(effectivePermissions(["field_worker"], catalog)).toEqual([...INCIDENT_PERMISSIONS]);
+});
+test("a custom role gets an incident permission only when it is switched on", () => {
+  expect(effectivePermissions(["limited"], catalog)).not.toContain("incidents.read");
+  catalog.roles.push({ id: "viewer", name: "Viewer", enabled: true, permissions: ["incidents.read"] });
+  expect(effectivePermissions(["viewer"], catalog)).toEqual(["incidents.read"]);
+  catalog.roles[1].enabled = false;
+  expect(effectivePermissions(["viewer"], catalog)).toEqual([]);
+});
+test("the role catalog lists the incident permissions", async () => {
+  const result = await app.inject({ method: "GET", url: "/v1/roles", headers });
+  expect(result.json().permissions).toEqual(expect.arrayContaining([...INCIDENT_PERMISSIONS]));
+  expect(result.json().roles.find((role: { id: string }) => role.id === "field_worker").permissions).toEqual([...INCIDENT_PERMISSIONS]);
+});
+test("a role editor can switch on only the incident permissions they hold", async () => {
+  const role = { id: "intake", name: "Intake", enabled: true, permissions: ["incidents.create"] };
+  expect((await app.inject({ method: "POST", url: "/v1/roles", headers, payload: { version: 3, role } })).statusCode).toBe(403);
+  catalog.roles[0].permissions.push("incidents.create");
+  expect((await app.inject({ method: "POST", url: "/v1/roles", headers, payload: { version: 3, role } })).statusCode).toBe(201);
 });
 test("revoked custom permissions take effect on the next request", async () => {
   expect((await app.inject({ method: "GET", url: "/v1/users", headers })).statusCode).toBe(200);
@@ -58,8 +80,13 @@ test.each([{ displayName: "Changed" }, { status: "DISABLED" }, { roles: ["admin"
   expect(ProfileStore.prototype.update).not.toHaveBeenCalled();
 });
 test("allows role-only assignment without edit-details permission", async () => {
+  catalog.roles[0].permissions.push(...INCIDENT_PERMISSIONS);
   const result = await app.inject({ method: "PATCH", url: "/v1/users/target", headers, payload: { version: 1, roles: ["field_worker"] } });
   expect(result.statusCode).toBe(200);
+});
+test("cannot make someone a field worker without holding the incident permissions field workers get", async () => {
+  const result = await app.inject({ method: "PATCH", url: "/v1/users/target", headers, payload: { version: 1, roles: ["field_worker"] } });
+  expect(result.statusCode).toBe(403);
 });
 test.each(["unknown", "other_tenant_role"])("rejects assigning non-tenant role %s", async role => {
   const result = await app.inject({ method: "PATCH", url: "/v1/users/target", headers, payload: { version: 1, roles: [role] } });
