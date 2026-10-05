@@ -1,8 +1,21 @@
 name: Deploy
+# A merge to main deploys innovation only. Dev, QA and production are deployed one at a time, only when someone starts
+# this workflow by hand on main (Actions -> Deploy -> Run workflow), picks the environment and types deploy-<environment>.
+# Nothing is promoted automatically from one environment to the next.
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to deploy this commit of main to
+        type: choice
+        options: [innovation, dev, qa, prod]
+        default: innovation
+      confirm:
+        description: For dev, qa or prod, type deploy-<environment> (for example deploy-qa). Not needed for innovation.
+        type: string
+        required: false
 
 permissions:
   id-token: write
@@ -11,7 +24,39 @@ permissions:
 env:
   AWS_REGION: us-east-1
 
+# One deploy per environment at a time.
+concurrency:
+  group: deploy-${{ inputs.environment || 'innovation' }}
+  cancel-in-progress: false
+
 jobs:
+  # Says at the top of the run which environment it deploys to, or why it deploys nothing.
+  decide:
+    runs-on: ubuntu-latest
+    outputs:
+      target: ${{ steps.decide.outputs.target }}
+    steps:
+      - name: Which environment?
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          WANTED: ${{ inputs.environment }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$EVENT" = "push" ]; then
+            echo "target=innovation" >> "$GITHUB_OUTPUT"
+            printf '### Deploys to innovation\nA merge to main deploys innovation only. Dev, QA and production are started by hand (Run workflow).\n' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$REF" != "refs/heads/main" ]; then echo "::error title=Not deploying::Deploys run only from main; this run was started from $REF."; exit 1; fi
+          if [ "$WANTED" != "innovation" ]; then
+            typed=$(printf '%s' "$CONFIRM" | xargs)
+            if [ "$typed" != "deploy-$WANTED" ]; then echo "::error title=Not deploying::To deploy $WANTED, type deploy-$WANTED in the confirmation box (typed: '$CONFIRM')."; exit 1; fi
+          fi
+          echo "target=$WANTED" >> "$GITHUB_OUTPUT"
+          printf '### Deploys to %s\nOnly this environment is deployed.\n' "$WANTED" >> "$GITHUB_STEP_SUMMARY"
+
   build_image:
     runs-on: ubuntu-latest
     outputs:
@@ -35,7 +80,8 @@ jobs:
           retention-days: 1
   
   deploy_innovation:
-    needs: build_image
+    needs: [build_image, decide]
+    if: needs.decide.outputs.target == 'innovation'
     runs-on: ubuntu-latest
     environment: innovation
     env:
@@ -119,7 +165,8 @@ jobs:
           bash infra/terraform/scripts/tfapply.sh innovation
 
   deploy_dev:
-    needs: [build_image, deploy_innovation]
+    needs: [build_image, decide]
+    if: needs.decide.outputs.target == 'dev'
     runs-on: ubuntu-latest
     environment: dev
     env:
@@ -203,7 +250,8 @@ jobs:
           bash infra/terraform/scripts/tfapply.sh dev
 
   deploy_qa:
-    needs: [build_image, deploy_dev]
+    needs: [build_image, decide]
+    if: needs.decide.outputs.target == 'qa'
     runs-on: ubuntu-latest
     environment: qa
     env:
@@ -284,7 +332,8 @@ jobs:
           bash infra/terraform/scripts/tfapply.sh qa
   
   deploy_prod:
-    needs: [build_image, deploy_qa]
+    needs: [build_image, decide]
+    if: needs.decide.outputs.target == 'prod'
     runs-on: ubuntu-latest
     environment: prod
     env:

@@ -14,7 +14,7 @@ This repo provides:
   - Shared Cognito User Pool (logical tenants)
   - Route53 + ACM cert for `api.evanyaconsulting.com` and `*.api.evanyaconsulting.com`
   - Per-tenant API Gateway custom domain + Route53 record (required for subdomain tenancy)
-- GitHub Actions CI/CD: Innovation → Dev → QA → Prod (Prod requires manual approval)
+- GitHub Actions CI/CD: a merge to main deploys Innovation only; Dev, QA and Prod are deployed one at a time by hand (Actions → Deploy → Run workflow, pick the environment, type deploy-<environment>)
 - OPA/Conftest policy checks for CRI-style guardrails
 
 ## Assumptions (edit as needed)
@@ -93,8 +93,8 @@ Tenant domains
           Builds once
           Pushes image per account
           Terraform plan + OPA
-          Auto deploys: innovation → dev → qa
-          Manual approval: prod
+          Merge to main: deploys innovation only
+          Dev, QA, Prod: Run workflow by hand, pick the environment, type deploy-<environment> (no automatic promotion)
 
     2) Auto Delegate Subzone (manual trigger)
           Reads delegated zone + NS from Terraform outputs
