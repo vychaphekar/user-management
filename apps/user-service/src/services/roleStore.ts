@@ -23,6 +23,8 @@ export const BUILTIN_ROLES: readonly Role[] = [
   { id: "admin", name: "Administrator", permissions: [...PERMISSIONS], enabled: true },
   // Field workers record, open and edit incidents by default; custom roles get them only when switched on.
   { id: "field_worker", name: "Field worker", permissions: [...INCIDENT_PERMISSIONS], enabled: true },
+  // View only (9 Oct 2026): reads incidents, cases and assessments in CaseManagement; changes nothing.
+  { id: "view_only", name: "View only", permissions: ["incidents.read"], enabled: true },
 ];
 export const CatalogSchema = z.object({
   version: z.number().int().nonnegative(),
@@ -51,7 +53,10 @@ export class RoleStore {
       Key: { pk: "TENANT#" + tenantId, sk: "ROLE_CATALOG" },
       ConsistentRead: true,
     }));
-    return result.Item ? CatalogSchema.parse(result.Item) : { version: 0, roles: [] };
+    if (!result.Item) return { version: 0, roles: [] };
+    // A custom role saved before a built-in role took its id (e.g. view_only) gives way to the built-in one.
+    const roles = Array.isArray(result.Item.roles) ? result.Item.roles.filter((role: { id?: string }) => !BUILTIN_ROLES.some(builtin => builtin.id === role.id)) : result.Item.roles;
+    return CatalogSchema.parse({ ...result.Item, roles });
   }
 
   async save(tenantId: string, catalog: RoleCatalog, role: Role, actor: { userId: string; version: number }) {

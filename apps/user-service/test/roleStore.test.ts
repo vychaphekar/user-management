@@ -11,6 +11,10 @@ test("reads roles consistently from the tenant partition", async () => {
   await expect(new RoleStore("us-east-1", "profiles").get("tenant")).resolves.toEqual({ version: 2, roles: [role] });
   expect(ddb.commandCalls(GetCommand)[0].args[0].input).toMatchObject({ Key: { pk: "TENANT#tenant", sk: "ROLE_CATALOG" }, ConsistentRead: true });
 });
+test("a custom role saved under an id a built-in role now uses (view_only) gives way to the built-in one", async () => {
+  ddb.on(GetCommand).resolves({ Item: { version: 4, roles: [role, { id: "view_only", name: "Viewers", permissions: ["users.read"], enabled: true }] } });
+  await expect(new RoleStore("us-east-1", "profiles").get("tenant")).resolves.toEqual({ version: 4, roles: [role] });
+});
 test("saves the version-checked catalog and audit atomically, checking the actor is still active", async () => {
   ddb.on(TransactWriteCommand).resolves({});
   const next = await new RoleStore("us-east-1", "profiles").save("tenant", { version: 2, roles: [role] }, { ...role, enabled: false }, { userId: "actor", version: 5 });

@@ -40,6 +40,11 @@ test("admins and field workers hold every incident permission by default", () =>
   expect(effectivePermissions(["admin"], catalog)).toEqual(expect.arrayContaining([...INCIDENT_PERMISSIONS]));
   expect(effectivePermissions(["field_worker"], catalog)).toEqual([...INCIDENT_PERMISSIONS]);
 });
+test("the built-in View only role reads incidents and changes nothing", async () => {
+  expect(effectivePermissions(["view_only"], catalog)).toEqual(["incidents.read"]);
+  const listed = (await app.inject({ method: "GET", url: "/v1/roles", headers })).json().roles.find((role: { id: string }) => role.id === "view_only");
+  expect(listed).toMatchObject({ name: "View only", permissions: ["incidents.read"], enabled: true, builtin: true });
+});
 test("a custom role gets an incident permission only when it is switched on", () => {
   expect(effectivePermissions(["limited"], catalog)).not.toContain("incidents.read");
   catalog.roles.push({ id: "viewer", name: "Viewer", enabled: true, permissions: ["incidents.read"] });
@@ -103,7 +108,7 @@ test("saves an allowed custom role in the authenticated tenant", async () => {
   expect(result.statusCode).toBe(201);
   expect(RoleStore.prototype.save).toHaveBeenCalledWith("t1", catalog, role, expect.objectContaining({ userId: "actor" }));
 });
-test.each(["admin", "field_worker"])("protects built-in role %s", async id => {
+test.each(["admin", "field_worker", "view_only"])("protects built-in role %s", async id => {
   const result = await app.inject({ method: "PUT", url: "/v1/roles/" + id, headers, payload: { version: 3, role: { id, name: "Changed", permissions: [], enabled: false } } });
   expect(result.statusCode).toBe(400); expect(RoleStore.prototype.save).not.toHaveBeenCalled();
 });
