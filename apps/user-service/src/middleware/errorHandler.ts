@@ -20,5 +20,9 @@ export function errorHandler(err: FastifyError, req: FastifyRequest, reply: Fast
   const status = entry?.[0] || (err.statusCode && err.statusCode >= 400 && err.statusCode < 600 ? err.statusCode : 500);
   // Never log request bodies, token-bearing URLs, upstream messages or personal records.
   req.log[status >= 500 ? "error" : "warn"]({ code: err.name, status, requestId: req.id }, "request_failed");
-  reply.status(status).send({ error: status >= 500 ? "ServiceError" : "RequestError", message: entry?.[1] || (status >= 500 ? "Service temporarily unavailable. Try again later." : err.message), requestId: req.id });
+  // Messages the service raises on purpose (for example "Onboarding is not configured" or "the invitation email could not
+  // be sent") reach the user; anything unexpected keeps the generic message so internal details never leak.
+  const deliberate = status >= 500 && status !== 500 && err.statusCode === status;
+  const message = entry?.[1] || (status >= 500 && !deliberate ? "Service temporarily unavailable. Try again later." : err.message);
+  reply.status(status).send({ error: status >= 500 ? "ServiceError" : "RequestError", message, requestId: req.id });
 }
