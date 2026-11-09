@@ -47,6 +47,8 @@ Requires Authorization: `Bearer <access_token>` and token includes `roles` with 
 | `incidents.create` | Create incidents (and the drafts and people they need) | Yes | Yes |
 | `incidents.read` | View incidents | Yes | Yes |
 | `incidents.update` | Edit incidents (admins any; others only incidents they created) | Yes | Yes |
+| `prevention.read`, `prevention.work`, `prevention.supervise`, `prevention.manage` | The Prevention add-on: View prevention cases, Work on prevention cases, Supervise prevention, Manage prevention settings | No | No |
 
 Custom roles get an incident permission only when an admin switches it on for that role.
+No built-in role holds a Prevention permission. Anyone with `roles.manage` or `users.assign_roles` can give them through a custom role without holding them, because otherwise nobody could give the first one.
 Because field workers hold the incident permissions, assigning the Field worker role needs them too.

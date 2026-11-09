@@ -1,7 +1,7 @@
 import { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { Env } from "../config/env";
-import { BUILTIN_ROLES, PERMISSIONS, RoleSchema, RoleStore } from "../services/roleStore";
+import { BUILTIN_ROLES, needsHolding, PERMISSIONS, RoleSchema, RoleStore } from "../services/roleStore";
 
 export const rolesRoutes: FastifyPluginAsync<{ env: Env }> = async (app, { env }) => {
   app.get("/", { preHandler: [app.requireAuth] }, async req => ({
@@ -26,7 +26,7 @@ export const rolesRoutes: FastifyPluginAsync<{ env: Env }> = async (app, { env }
     if ([...BUILTIN_ROLES, ...catalog.roles].some(role => role.id !== roleId && role.name.toLowerCase() === body.role.name.toLowerCase())) {
       throw app.httpErrors.conflict("A role with that name already exists");
     }
-    if ([...body.role.permissions, ...(existing?.permissions || [])].some(permission => !req.permissions?.includes(permission))) {
+    if ([...body.role.permissions, ...(existing?.permissions || [])].some(permission => needsHolding(permission) && !req.permissions?.includes(permission))) {
       throw app.httpErrors.forbidden("You can only manage permissions you hold");
     }
     await new RoleStore(env.AWS_REGION, req.tenant.profileTableName)

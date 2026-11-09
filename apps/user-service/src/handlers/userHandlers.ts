@@ -8,7 +8,7 @@ import { InviteStore } from "../services/inviteStore";
 import { EmailService } from "../services/emailService";
 import { signInviteToken } from "../services/inviteToken";
 import { publicProfile } from "./authHandlers";
-import { BUILTIN_ROLES, effectivePermissions, Permission } from "../services/roleStore";
+import { BUILTIN_ROLES, effectivePermissions, needsHolding, Permission } from "../services/roleStore";
 const Roles = z.array(z.string().trim().min(1).max(64).regex(/^[a-z][a-z0-9_]*$/)).min(1).max(20).refine(v => new Set(v).size === v.length, "Duplicate roles");
 const Invite = z.object({ email: z.string().trim().email().max(254).transform(v => v.toLowerCase()), displayName: z.string().trim().min(1).max(150), roles: Roles }).strict();
 const Version = z.object({ version: z.number().int().positive() }).strict();
@@ -28,7 +28,7 @@ export function userHandlers(env: Env) {
     if (ids.some(id => ![...BUILTIN_ROLES, ...catalog.roles].some(role => role.id === id && role.enabled))) {
       throw req.server.httpErrors.badRequest("Select enabled roles from this organization");
     }
-    if (effectivePermissions(ids, catalog).some(permission => !req.permissions?.includes(permission))) {
+    if (effectivePermissions(ids, catalog).some(permission => needsHolding(permission) && !req.permissions?.includes(permission))) {
       throw req.server.httpErrors.forbidden("You cannot grant permissions you do not hold");
     }
   }

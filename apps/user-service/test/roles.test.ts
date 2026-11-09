@@ -33,7 +33,7 @@ test("custom role grants access without the admin role", async () => {
 });
 test("disabled and unknown roles grant no permissions", () => {
   expect(effectivePermissions(["limited", "unknown"], { ...catalog, roles: catalog.roles.map(role => ({ ...role, enabled: false })) })).toEqual([]);
-  expect(effectivePermissions(["admin"], catalog)).toEqual([...PERMISSIONS]);
+  expect(effectivePermissions(["admin"], catalog)).toEqual(PERMISSIONS.filter(permission => !permission.startsWith("prevention.")));
 });
 test("admins and field workers hold every incident permission by default", () => {
   expect(INCIDENT_PERMISSIONS).toEqual(["incidents.create", "incidents.read", "incidents.update"]);
@@ -62,6 +62,13 @@ test("a role editor can switch on only the incident permissions they hold", asyn
   expect((await app.inject({ method: "POST", url: "/v1/roles", headers, payload: { version: 3, role } })).statusCode).toBe(403);
   catalog.roles[0].permissions.push("incidents.create");
   expect((await app.inject({ method: "POST", url: "/v1/roles", headers, payload: { version: 3, role } })).statusCode).toBe(201);
+});
+test("no built-in role holds a Prevention permission; an admin who manages roles can still give them through a custom role", async () => {
+  for (const id of ["admin", "field_worker", "view_only"]) expect(effectivePermissions([id], catalog).filter(permission => permission.startsWith("prevention."))).toEqual([]);
+  const role = { id: "prevention_worker", name: "Prevention worker", enabled: true, permissions: ["prevention.read", "prevention.work"] };
+  expect((await app.inject({ method: "POST", url: "/v1/roles", headers, payload: { version: 3, role } })).statusCode).toBe(201);
+  const incident = { id: "both", name: "Both", enabled: true, permissions: ["prevention.read", "incidents.update"] };
+  expect((await app.inject({ method: "POST", url: "/v1/roles", headers, payload: { version: 3, role: incident } })).statusCode).toBe(403);
 });
 test("revoked custom permissions take effect on the next request", async () => {
   expect((await app.inject({ method: "GET", url: "/v1/users", headers })).statusCode).toBe(200);
