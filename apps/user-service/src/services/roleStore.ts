@@ -8,9 +8,18 @@ export const PERMISSIONS = [
   "users.disable", "users.delete", "users.reset_password", "roles.manage",
   // Enforced by the CaseManagement service, which reads them from GET /v1/auth/me.
   "incidents.create", "incidents.read", "incidents.update",
+  // The Prevention add-on (Prevention BRD Step A), enforced by the CaseManagement service with its per-case access.
+  "prevention.read", "prevention.work", "prevention.supervise", "prevention.manage",
 ] as const;
 export type Permission = typeof PERMISSIONS[number];
 export const INCIDENT_PERMISSIONS: readonly Permission[] = ["incidents.create", "incidents.read", "incidents.update"];
+export const PREVENTION_PERMISSIONS: readonly Permission[] = ["prevention.read", "prevention.work", "prevention.supervise", "prevention.manage"];
+/**
+ * No built-in role holds a Prevention permission: an agency gives them through a custom role of its own. So whoever may manage roles or
+ * assign them may also hand these out without holding them; otherwise nobody could ever grant the first one. Access to a case is
+ * still decided case by case in CaseManagement.
+ */
+export const needsHolding = (permission: Permission) => !PREVENTION_PERMISSIONS.includes(permission);
 export const RoleSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/),
   name: z.string().trim().min(1).max(80),
@@ -20,7 +29,7 @@ export const RoleSchema = z.object({
 }).strict();
 export type Role = z.infer<typeof RoleSchema>;
 export const BUILTIN_ROLES: readonly Role[] = [
-  { id: "admin", name: "Administrator", permissions: [...PERMISSIONS], enabled: true },
+  { id: "admin", name: "Administrator", permissions: PERMISSIONS.filter(needsHolding), enabled: true },
   // Field workers record, open and edit incidents by default; custom roles get them only when switched on.
   { id: "field_worker", name: "Field worker", permissions: [...INCIDENT_PERMISSIONS], enabled: true },
   // View only (9 Oct 2026): reads incidents, cases and assessments in CaseManagement; changes nothing.
