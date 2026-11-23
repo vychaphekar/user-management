@@ -10,16 +10,21 @@ export const PERMISSIONS = [
   "incidents.create", "incidents.read", "incidents.update",
   // The Prevention add-on (Prevention BRD Step A), enforced by the CaseManagement service with its per-case access.
   "prevention.read", "prevention.work", "prevention.supervise", "prevention.manage",
+  // The Care and Wellness add-on (Care and Wellness Step A, 23 Nov 2026), enforced by CaseManagement together with case access.
+  "wellness.read", "wellness.work", "wellness.supervise", "wellness.manage",
 ] as const;
 export type Permission = typeof PERMISSIONS[number];
 export const INCIDENT_PERMISSIONS: readonly Permission[] = ["incidents.create", "incidents.read", "incidents.update"];
 export const PREVENTION_PERMISSIONS: readonly Permission[] = ["prevention.read", "prevention.work", "prevention.supervise", "prevention.manage"];
+export const WELLNESS_PERMISSIONS: readonly Permission[] = ["wellness.read", "wellness.work", "wellness.supervise", "wellness.manage"];
+/** Care and Wellness permissions include the ones below them: Supervise gives Work and View, Work gives View. Manage stands alone. */
+const IMPLIED: Partial<Record<Permission, Permission[]>> = { "wellness.supervise": ["wellness.work", "wellness.read"], "wellness.work": ["wellness.read"] };
 /**
  * No built-in role holds a Prevention permission: an agency gives them through a custom role of its own. So whoever may manage roles or
  * assign them may also hand these out without holding them; otherwise nobody could ever grant the first one. Access to a case is
  * still decided case by case in CaseManagement.
  */
-export const needsHolding = (permission: Permission) => !PREVENTION_PERMISSIONS.includes(permission);
+export const needsHolding = (permission: Permission) => !PREVENTION_PERMISSIONS.includes(permission) && !WELLNESS_PERMISSIONS.includes(permission);
 export const RoleSchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/),
   name: z.string().trim().min(1).max(80),
@@ -29,7 +34,8 @@ export const RoleSchema = z.object({
 }).strict();
 export type Role = z.infer<typeof RoleSchema>;
 export const BUILTIN_ROLES: readonly Role[] = [
-  { id: "admin", name: "Administrator", permissions: PERMISSIONS.filter(needsHolding), enabled: true },
+  // Care and Wellness (23 Nov 2026): the built-in Administrator manages its settings only; seeing children's records needs a custom role.
+  { id: "admin", name: "Administrator", permissions: [...PERMISSIONS.filter(needsHolding), "wellness.manage"], enabled: true },
   // Field workers record, open and edit incidents by default; custom roles get them only when switched on.
   { id: "field_worker", name: "Field worker", permissions: [...INCIDENT_PERMISSIONS], enabled: true },
   // View only (9 Oct 2026): reads incidents, cases and assessments in CaseManagement; changes nothing.
@@ -47,7 +53,8 @@ export type RoleCatalog = z.infer<typeof CatalogSchema>;
 export function effectivePermissions(ids: readonly string[], catalog: RoleCatalog): Permission[] {
   return [...new Set([...BUILTIN_ROLES, ...catalog.roles]
     .filter(role => role.enabled && ids.includes(role.id))
-    .flatMap(role => role.permissions))];
+    .flatMap(role => role.permissions)
+    .flatMap(permission => [permission, ...(IMPLIED[permission] ?? [])]))];
 }
 
 export class RoleStore {

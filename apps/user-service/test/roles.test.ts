@@ -5,7 +5,7 @@ import { TenantRegistry } from "../src/services/tenantRegistry";
 import { ProfileStore, UserProfile } from "../src/services/profileStore";
 import { CognitoIdp } from "../src/services/cognitoIdp";
 import { JwtValidator } from "../src/services/jwtValidator";
-import { RoleStore, PERMISSIONS, INCIDENT_PERMISSIONS, RoleCatalog, effectivePermissions } from "../src/services/roleStore";
+import { RoleStore, PERMISSIONS, INCIDENT_PERMISSIONS, RoleCatalog, effectivePermissions, Permission } from "../src/services/roleStore";
 
 const env: Env = { PORT: "3000", AWS_REGION: "us-east-1", TENANT_TABLE_NAME: "tenants", PROFILE_TABLE_NAME: "profiles", DEFAULT_USER_POOL_ID: "pool", DEFAULT_USER_POOL_ISSUER: "https://issuer.example", DEFAULT_APP_CLIENT_ID: "client", LOG_LEVEL: "silent", INVITE_TABLE_NAME: "invites", INVITE_JWT_SECRET: "test-only-secret-not-for-deployment", SES_FROM_EMAIL: "test@example.com" };
 const headers = { host: "alpha.api.evanyaconsulting.com", origin: "https://app.example.com", authorization: "Bearer token" };
@@ -33,7 +33,7 @@ test("custom role grants access without the admin role", async () => {
 });
 test("disabled and unknown roles grant no permissions", () => {
   expect(effectivePermissions(["limited", "unknown"], { ...catalog, roles: catalog.roles.map(role => ({ ...role, enabled: false })) })).toEqual([]);
-  expect(effectivePermissions(["admin"], catalog)).toEqual(PERMISSIONS.filter(permission => !permission.startsWith("prevention.")));
+  expect(effectivePermissions(["admin"], catalog)).toEqual([...PERMISSIONS.filter(permission => !permission.startsWith("prevention.") && !permission.startsWith("wellness.")), "wellness.manage"]);
 });
 test("admins and field workers hold every incident permission by default", () => {
   expect(INCIDENT_PERMISSIONS).toEqual(["incidents.create", "incidents.read", "incidents.update"]);
@@ -69,6 +69,22 @@ test("no built-in role holds a Prevention permission; an admin who manages roles
   expect((await app.inject({ method: "POST", url: "/v1/roles", headers, payload: { version: 3, role } })).statusCode).toBe(201);
   const incident = { id: "both", name: "Both", enabled: true, permissions: ["prevention.read", "incidents.update"] };
   expect((await app.inject({ method: "POST", url: "/v1/roles", headers, payload: { version: 3, role: incident } })).statusCode).toBe(403);
+});
+test("Care and Wellness: the Administrator manages settings only; Supervise includes Work and View; Manage stands alone", async () => {
+  expect(effectivePermissions(["admin"], catalog).filter(permission => permission.startsWith("wellness."))).toEqual(["wellness.manage"]);
+  for (const id of ["field_worker", "view_only"]) expect(effectivePermissions([id], catalog).filter(permission => permission.startsWith("wellness."))).toEqual([]);
+  const roles = [
+    { id: "cw_super", name: "Wellness supervisor", enabled: true, permissions: ["wellness.supervise"] as Permission[] },
+    { id: "cw_worker", name: "Wellness worker", enabled: true, permissions: ["wellness.work"] as Permission[] },
+    { id: "cw_manager", name: "Wellness settings", enabled: true, permissions: ["wellness.manage"] as Permission[] },
+  ];
+  const withRoles = { ...catalog, roles: [...catalog.roles, ...roles] };
+  expect(effectivePermissions(["cw_super"], withRoles).sort()).toEqual(["wellness.read", "wellness.supervise", "wellness.work"]);
+  expect(effectivePermissions(["cw_worker"], withRoles).sort()).toEqual(["wellness.read", "wellness.work"]);
+  expect(effectivePermissions(["cw_manager"], withRoles)).toEqual(["wellness.manage"]);
+  // An admin who manages roles can give them through a custom role without holding them.
+  const role = { id: "wellness_worker", name: "Wellness worker 2", enabled: true, permissions: ["wellness.read", "wellness.work"] };
+  expect((await app.inject({ method: "POST", url: "/v1/roles", headers, payload: { version: 3, role } })).statusCode).toBe(201);
 });
 test("revoked custom permissions take effect on the next request", async () => {
   expect((await app.inject({ method: "GET", url: "/v1/users", headers })).statusCode).toBe(200);

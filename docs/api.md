@@ -48,7 +48,10 @@ Requires Authorization: `Bearer <access_token>` and token includes `roles` with 
 | `incidents.read` | View incidents | Yes | Yes |
 | `incidents.update` | Edit incidents (admins any; others only incidents they created) | Yes | Yes |
 | `prevention.read`, `prevention.work`, `prevention.supervise`, `prevention.manage` | The Prevention add-on: View prevention cases, Work on prevention cases, Supervise prevention, Manage prevention settings | No | No |
+| `wellness.read`, `wellness.work`, `wellness.supervise` | The Care and Wellness add-on: View care and wellness, Work on care and wellness, Supervise care and wellness. Supervise includes Work and View; Work includes View | No | No |
+| `wellness.manage` | Manage care and wellness settings (independent of the others) | Yes | No |
 
 Custom roles get an incident permission only when an admin switches it on for that role.
-No built-in role holds a Prevention permission. Anyone with `roles.manage` or `users.assign_roles` can give them through a custom role without holding them, because otherwise nobody could give the first one.
+No built-in role holds a Prevention permission, and the only Care and Wellness permission a built-in role holds is `wellness.manage` (Administrator).
+`GET /v1/auth/me` returns Care and Wellness permissions with the ones they include (Supervise adds Work and View; Work adds View). Anyone with `roles.manage` or `users.assign_roles` can give them through a custom role without holding them, because otherwise nobody could give the first one.
 Because field workers hold the incident permissions, assigning the Field worker role needs them too.
